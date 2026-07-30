@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+
+# Output data (generated, not source)
+output/*.csv
+output/*.json
+output/*.xlsx
+
+# Images (generated)
+images/*.jpg
+images/*.png
+images/*.gif
+images/*.webp
+
+# Checkpoint (runtime state)
+checkpoint/
+
+# Logs
+logs/*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
