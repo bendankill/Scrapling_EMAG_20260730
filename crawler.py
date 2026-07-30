@@ -9,6 +9,7 @@ eMAG 爬虫 - 爬取模块
 """
 
 import time
+import os
 import threading
 import concurrent.futures
 from typing import Callable
@@ -83,13 +84,17 @@ def fetch_with_retry(
 # 列表页爬取
 # ============================================================
 def crawl_list_pages(
+    start_url: str = "",
+    category_path: str = "",
     max_pages: int = 0,
     progress_callback: Callable = None,
 ) -> tuple[list[dict], dict]:
     """
-    爬取所有列表页，返回所有产品基本数据
+    爬取单个类目的所有列表页，返回所有产品基本数据
 
     参数:
+        start_url: 类目第一页完整 URL（可含 query params）
+        category_path: 类目翻页路径，如 /mouse、/laptop-tablete
         max_pages: 最大爬取页数，0 表示全部
         progress_callback: 进度回调
 
@@ -97,14 +102,16 @@ def crawl_list_pages(
         products: 产品字典列表（只含列表页数据）
         stats: 统计信息
     """
-    # 检查断点
-    checkpoint = load_checkpoint(config.CHECKPOINT_LIST_PAGES)
+    # 检查断点（按类目隔离）
+    safe_name = category_path.strip("/").replace("/", "_") or "default"
+    checkpoint_file = os.path.join(config.CHECKPOINT_DIR, f"list_pages_{safe_name}.json")
+    checkpoint = load_checkpoint(checkpoint_file)
     completed_pages = set(checkpoint.get("completed_pages", []) if checkpoint else [])
     all_products = checkpoint.get("products", []) if checkpoint else []
 
     # 先获取第一页以确定总页数
     logger.info(f"正在获取首页以确定总页数...")
-    first_page = fetch_with_retry(build_list_url(1))
+    first_page = fetch_with_retry(start_url or build_list_url(1, category_path))
     if not first_page:
         logger.error("无法获取首页，退出")
         return [], {"error": "首页获取失败"}
@@ -134,7 +141,7 @@ def crawl_list_pages(
         all_products.extend(products_p1)
         completed_pages.add(1)
         logger.info(f"第 1 页: {len(products_p1)} 个商品")
-        save_checkpoint(config.CHECKPOINT_LIST_PAGES, {
+        save_checkpoint(checkpoint_file, {
             "completed_pages": list(completed_pages),
             "products": all_products,
             "total_pages": total_pages,
@@ -165,7 +172,7 @@ def crawl_list_pages(
         nonlocal pages_done
         random_sleep(config.MIN_DELAY, config.MAX_DELAY, reason=f"翻页到 {page_num}")
 
-        url = build_list_url(page_num)
+        url = build_list_url(page_num, category_path)
         resp = fetch_with_retry(url)
         if not resp:
             logger.error(f"第 {page_num} 页获取失败")
@@ -179,7 +186,7 @@ def crawl_list_pages(
             completed_pages.add(page_num)
             pages_done += 1
             if pages_done % config.CHECKPOINT_INTERVAL == 0:
-                save_checkpoint(config.CHECKPOINT_LIST_PAGES, {
+                save_checkpoint(checkpoint_file, {
                     "completed_pages": list(completed_pages),
                     "products": all_products + products,
                     "total_pages": total_pages,
@@ -198,7 +205,7 @@ def crawl_list_pages(
 
         # 每5页保存一次完整断点
         if page_num % config.CHECKPOINT_INTERVAL == 0:
-            save_checkpoint(config.CHECKPOINT_LIST_PAGES, {
+            save_checkpoint(checkpoint_file, {
                 "completed_pages": list(completed_pages),
                 "products": all_products,
                 "total_pages": total_pages,
@@ -206,7 +213,7 @@ def crawl_list_pages(
             })
 
     # 最终保存
-    save_checkpoint(config.CHECKPOINT_LIST_PAGES, {
+    save_checkpoint(checkpoint_file, {
         "completed_pages": list(completed_pages),
         "products": all_products,
         "total_pages": total_pages,
@@ -214,6 +221,7 @@ def crawl_list_pages(
     })
 
     stats = {
+        "category_path": category_path,
         "website_total_pages": website_total_pages,
         "total_pages": total_pages,
         "total_found": len(all_products),

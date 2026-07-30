@@ -25,13 +25,12 @@ for d in [CHECKPOINT_DIR, SPEED_DIR]:
     os.makedirs(d, exist_ok=True)
 
 # ============================================================
-# 目标 URL
+# 目标 URL — 由 config/categories.txt 提供，此处不再硬编码
 # ============================================================
-START_URL = "https://www.emag.ro/mouse/c?ref=hp_menu_quick-nav_23_22&type=category"
 BASE_DOMAIN = "https://www.emag.ro"
 
-# 分页格式: /mouse/p{N}/c  (N >= 2, 第一页无 p1)
-CATEGORY_PATH = "/mouse"
+# 多类目配置文件
+CATEGORIES_FILE = os.path.join(BASE_DIR, "config", "categories.txt")
 
 # ============================================================
 # 抓取策略

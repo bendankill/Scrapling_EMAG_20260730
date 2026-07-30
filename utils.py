@@ -158,11 +158,17 @@ def extract_pnk_from_url(url: str) -> str:
 # ============================================================
 # URL 工具
 # ============================================================
-def build_list_url(page_num: int) -> str:
-    """构建列表页 URL"""
+def build_list_url(page_num: int, category_path: str) -> str:
+    """
+    构建列表页翻页 URL
+
+    参数:
+        page_num: 页码（1 = 第一页）
+        category_path: 类目路径，如 /mouse 或 /laptop-tablete
+    """
     if page_num <= 1:
-        return f"{config.BASE_DOMAIN}{config.CATEGORY_PATH}/c"
-    return f"{config.BASE_DOMAIN}{config.CATEGORY_PATH}/p{page_num}/c"
+        return f"{config.BASE_DOMAIN}{category_path}/c"
+    return f"{config.BASE_DOMAIN}{category_path}/p{page_num}/c"
 
 
 def build_detail_url(pnk: str, slug: str = "product") -> str:

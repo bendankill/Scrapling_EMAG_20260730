@@ -30,6 +30,7 @@ from logger import logger
 from crawler import crawl_list_pages, crawl_detail_pages
 from save import save_csv, save_excel, save_json, download_all_images
 from utils import load_checkpoint
+from category_loader import load_categories, CategoryInfo
 from scrapling.fetchers import Fetcher
 
 
@@ -77,6 +78,7 @@ def print_debug_banner(args):
     print(f"  Detail Delay:   {config.MIN_DETAIL_DELAY}-{config.MAX_DETAIL_DELAY}s")
     print(f"  Max Retries:    {config.MAX_RETRIES}")
     print(f"  Download Imgs:  {config.DOWNLOAD_IMAGES and not args.no_images}")
+    print(f"  Categories:     {config.CATEGORIES_FILE}")
     print(f"  Run Dir:        {config.OUTPUT_DIR}")
     print(f"  Output:")
     print(f"    CSV:          {config.CSV_FILE}")
@@ -95,8 +97,8 @@ def main():
 
     print()
     print("=" * 60)
-    print("  eMAG Mouse Category Scraper")
-    print("  https://www.emag.ro/mouse/c")
+    print("  eMAG Multi-Category Scraper")
+    print(f"  Config: {config.CATEGORIES_FILE}")
     print("=" * 60)
     print()
 
@@ -126,12 +128,22 @@ def main():
         export_all(products)
         return
 
+    # ---- 加载类目 ----
+    try:
+        categories = load_categories()
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(str(e))
+        return
+
     # ---- 图片开关 ----
     if args.no_images:
         config.DOWNLOAD_IMAGES = False
 
     # ---- 统计 ----
     stats = {
+        "total_categories": len(categories),
+        "categories_done": 0,
+        "categories_failed": 0,
         "website_total_pages": 0,
         "page_limit": args.pages if args.pages > 0 else "ALL",
         "pages_crawled": 0,
@@ -140,32 +152,64 @@ def main():
         "fail_detail": 0,
     }
 
+    # 所有类目的产品汇总
+    all_products = []
+
     # ================================================================
-    # Phase 1: 爬取列表页
+    # Phase 1: 遍历所有类目，爬取列表页
     # ================================================================
     print()
-    logger.info("=" * 50)
-    logger.info("Phase 1: 爬取列表页")
-    logger.info("=" * 50)
+    logger.info("=" * 60)
+    logger.info("Phase 1: 多类目列表页采集")
+    logger.info("=" * 60)
 
-    # ---- 关键修复：将 --pages 传入 crawler，在爬取阶段就限制翻页 ----
-    products, list_stats = crawl_list_pages(max_pages=args.pages)
-    if not products:
-        logger.error("列表页无数据，退出")
+    for cat in categories:
+        print()
+        logger.info("-" * 50)
+        logger.info(f"Start Category [{cat.index}/{len(categories)}]: {cat.url}")
+        logger.info(f"  Category Path: {cat.category_path}")
+        logger.info("-" * 50)
+
+        try:
+            cat_products, cat_stats = crawl_list_pages(
+                start_url=cat.url,
+                category_path=cat.category_path,
+                max_pages=args.pages,
+            )
+
+            if cat_products:
+                all_products.extend(cat_products)
+                stats["categories_done"] += 1
+                stats["pages_crawled"] += cat_stats.get("pages_crawled", 0)
+                stats["website_total_pages"] += cat_stats.get("website_total_pages", 0)
+                logger.info(
+                    f"Finished Category [{cat.index}]: {cat.category_path} "
+                    f"→ {len(cat_products)} 个商品, "
+                    f"{cat_stats.get('pages_crawled', 0)} 页"
+                )
+            else:
+                logger.warning(f"类目无数据 [{cat.index}]: {cat.category_path}，跳过")
+                stats["categories_failed"] += 1
+
+        except Exception as e:
+            logger.error(f"类目采集异常 [{cat.index}]: {cat.category_path} — {e}")
+            stats["categories_failed"] += 1
+            continue  # 跳过失败的类目，继续下一个
+
+    stats["total_products"] = len(all_products)
+
+    if not all_products:
+        logger.error("所有类目均无数据，退出")
         return
-
-    stats["website_total_pages"] = list_stats.get("website_total_pages", 0)
-    stats["pages_crawled"] = list_stats.get("pages_crawled", 0)
-    stats["total_products"] = len(products)
 
     # ---- 如果仅列表页 ----
     if args.list_only:
         logger.info("--list-only 模式: 仅保存列表页数据")
-        save_csv(products)
-        save_json(products)
-        save_excel(products)
+        save_csv(all_products)
+        save_json(all_products)
+        save_excel(all_products)
         if config.DOWNLOAD_IMAGES:
-            download_all_images(products, Fetcher)
+            download_all_images(all_products, Fetcher)
         print_summary(stats, start_time)
         return
 
@@ -177,7 +221,7 @@ def main():
     logger.info("Phase 2: 爬取详情页")
     logger.info("=" * 50)
 
-    products = crawl_detail_pages(products)
+    all_products = crawl_detail_pages(all_products)
 
     # 统计详情结果
     cp = load_checkpoint(config.CHECKPOINT_DETAIL_PAGES)
@@ -193,7 +237,7 @@ def main():
     logger.info("Phase 3: 导出数据")
     logger.info("=" * 50)
 
-    export_all(products)
+    export_all(all_products)
 
     # ================================================================
     # 完成
@@ -242,6 +286,9 @@ def print_summary(stats: dict, start_time: float):
     print("  抓取完成!")
     print("=" * 60)
     print(f"  耗时: {hours}h {minutes}m {seconds}s")
+    print(f"  类目总数: {stats.get('total_categories', '?')}")
+    print(f"  类目成功: {stats.get('categories_done', 0)}")
+    print(f"  类目失败: {stats.get('categories_failed', 0)}")
     print(f"  网站总页数: {stats.get('website_total_pages', '?')}")
     print(f"  页数限制: {stats.get('page_limit', 'ALL')}")
     print(f"  实际抓取: {stats.get('pages_crawled', 0)} 页")
