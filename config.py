@@ -8,14 +8,20 @@ import os
 # 项目路径
 # ============================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-IMAGES_DIR = os.path.join(BASE_DIR, "images")
-LOGS_DIR = os.path.join(BASE_DIR, "logs")
+
+# 输出路径统一由 RunContext 管理（每次运行自动创建时间戳子目录）
+from run_context import run
+
+OUTPUT_DIR = run.run_dir       # output/20260730_203518/
+IMAGES_DIR = run.images_dir    # output/20260730_203518/images/
+LOGS_DIR = run.logs_dir        # output/20260730_203518/logs/
+RUN_TIMESTAMP = run.timestamp  # "20260730_203518"
+
 CHECKPOINT_DIR = os.path.join(BASE_DIR, "checkpoint")
 SPEED_DIR = os.path.join(BASE_DIR, "speed_mode")
 
-# 确保目录存在
-for d in [OUTPUT_DIR, IMAGES_DIR, LOGS_DIR, CHECKPOINT_DIR, SPEED_DIR]:
+# 确保目录存在（RunContext 已创建 OUTPUT/IMAGES/LOGS，这里只补 checkpoint/speed_mode）
+for d in [CHECKPOINT_DIR, SPEED_DIR]:
     os.makedirs(d, exist_ok=True)
 
 # ============================================================
@@ -91,11 +97,11 @@ USER_AGENTS = [
 ]
 
 # ============================================================
-# 输出文件
+# 输出文件（由 RunContext 提供完整路径）
 # ============================================================
-CSV_FILE = os.path.join(OUTPUT_DIR, "products.csv")
-EXCEL_FILE = os.path.join(OUTPUT_DIR, "products.xlsx")
-JSON_FILE = os.path.join(OUTPUT_DIR, "products.json")
+CSV_FILE = run.csv_file
+EXCEL_FILE = run.excel_file
+JSON_FILE = run.json_file
 
 # ============================================================
 # Scrapling Fetcher 参数
