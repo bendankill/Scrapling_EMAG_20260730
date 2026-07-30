@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v1.0.1 (2026-07-30)
+
+### Changed
+
+- 详情页图片下载从仅主图改为全部图库图片
+- 新增 `image_handler.py`：`ImageGalleryParser` + `ImageDownloader`
+- 图库多源提取：`<img>` 标签 + `data-src` 懒加载 + `<a>` 大图链接
+- 高清优先策略：原图（无 `width=` 参数）> 大尺寸 > 缩略图
+- CSV 新增 `image_count` 字段
+- 图片下载逻辑收敛到 `ImageDownloader`，代码量净减 37 行
+
+---
+
 ## v1.0 (2026-07-30)
 
 ### Added
