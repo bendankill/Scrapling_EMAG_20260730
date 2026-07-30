@@ -262,16 +262,9 @@ def export_all(products: list[dict]):
     # JSON
     json_path = save_json(products)
 
-    # 图片
+    # 图片（ImageDownloader 内部已更新 image_path 和 image_count）
     if config.DOWNLOAD_IMAGES:
         download_all_images(products, Fetcher)
-        # 更新 image_path
-        for p in products:
-            pnk = p.get("pnk", "")
-            import glob as gb
-            img_files = gb.glob(os.path.join(config.IMAGES_DIR, f"{pnk}_*"))
-            if img_files:
-                p["image_path"] = img_files[0]
 
 
 def print_summary(stats: dict, start_time: float):

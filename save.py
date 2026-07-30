@@ -52,7 +52,7 @@ FIELD_ORDER = [
     "installment",
     "avg_rating", "review_count", "star_pct",
     "stock_text", "is_in_stock", "delivery_estimate",
-    "image_url", "image_path",
+    "image_url", "image_path", "image_count",
     "badges", "is_genius", "is_top_favorite", "is_super_pret",
     "_has_family", "_scm_category",
     # 详情页字段
@@ -188,71 +188,25 @@ def save_json(products: list[dict], filepath: str = None) -> str:
 
 
 # ============================================================
-# 图片下载
+# 图片下载（委托给 ImageDownloader）
 # ============================================================
 def download_all_images(products: list[dict], fetcher_cls) -> None:
     """
-    下载所有商品的主图和详情图片
+    下载所有商品的全部图库图片
 
-    线程安全：使用 Fetcher 类的单次请求
+    委托 image_handler.ImageDownloader 处理。
     """
-    from utils import download_image, get_high_res_url
-    import concurrent.futures
+    from image_handler import ImageDownloader
 
     if not config.DOWNLOAD_IMAGES:
         logger.info("图片下载已禁用")
         return
 
-    # 收集所有需要下载的图片
-    image_tasks = []
+    # 对于没有 _gallery_urls 的商品（仅列表页数据），使用 image_url 作为兜底
     for p in products:
-        pnk = p.get("pnk", "")
-        # 主图
-        main_img = p.get("image_url", "")
-        if main_img:
-            image_tasks.append((get_high_res_url(main_img), pnk, 0))
+        if not p.get("_gallery_urls") and p.get("image_url"):
+            from image_handler import get_high_res_url
+            p["_gallery_urls"] = [get_high_res_url(p.get("image_url", ""))]
 
-        # 详情页所有图片
-        all_imgs = p.get("all_images", "")
-        if all_imgs:
-            for idx, img in enumerate(all_imgs.split("|"), 1):
-                if img and img != main_img:
-                    image_tasks.append((get_high_res_url(img), pnk, idx))
-
-    if not image_tasks:
-        logger.info("没有图片需要下载")
-        return
-
-    logger.info(f"开始下载 {len(image_tasks)} 张图片（并发 {config.CONCURRENT_IMAGE}）...")
-
-    success = 0
-    fail = 0
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=config.CONCURRENT_IMAGE) as executor:
-        futures = {
-            executor.submit(download_image, url, pid, idx, fetcher_cls): (pid, idx)
-            for url, pid, idx in image_tasks
-        }
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                path = future.result()
-                if path:
-                    success += 1
-                else:
-                    fail += 1
-            except Exception:
-                fail += 1
-
-    logger.info(f"图片下载完成: 成功 {success}, 失败 {fail}")
-
-    # 更新产品的 image_path
-    for p in products:
-        pnk = p.get("pnk", "")
-        main_path = os.path.join(config.IMAGES_DIR, f"{pnk}_000.jpg")
-        if os.path.exists(main_path):
-            p["image_path"] = main_path
-        else:
-            # 找第一个存在的
-            import glob
-            existing = glob.glob(os.path.join(config.IMAGES_DIR, f"{pnk}_*"))
-            p["image_path"] = existing[0] if existing else ""
+    downloader = ImageDownloader(fetcher_cls)
+    downloader.download_all_products(products)

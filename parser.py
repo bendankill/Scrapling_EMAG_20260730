@@ -270,7 +270,11 @@ def parse_detail_page(response: ScraplingResponse, product_url: str) -> dict:
     detail["description"] = _parse_description(response)
 
     # ---- 4. 图片列表 ----
-    detail["all_images"] = _parse_all_images(response)
+    from image_handler import collect_gallery_from_detail
+    pnk = detail.get("ld_sku", "")
+    gallery_urls = collect_gallery_from_detail(response, pnk)
+    detail["_gallery_urls"] = gallery_urls
+    detail["all_images"] = "|".join(gallery_urls)
 
     # ---- 5. 卖家信息 ----
     seller_info = _parse_seller(response)
