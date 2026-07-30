@@ -2,6 +2,8 @@
 
 基于 [Scrapling](https://github.com/D4Vinci/Scrapling) 的 eMAG 电商爬虫，支持多类目批量采集。
 
+**Current Version: v1.0**
+
 ## 快速开始
 
 ```bash
@@ -94,3 +96,11 @@ Scrapling_EMAG/
 - `MIN_DELAY / MAX_DELAY`：请求间隔（默认 2-5 秒）
 - `MAX_RETRIES`：最大重试次数（默认 3）
 - `CHECKPOINT_INTERVAL`：断点保存间隔
+
+## Version History
+
+| Version | Date | Notes |
+|---------|------|-------|
+| v1.0 | 2026-07-30 | 首个正式稳定版本：多类目采集、运行目录归档、统一输出管理、配置化类目管理 |
+
+详细变更见 [CHANGELOG.md](CHANGELOG.md)。
