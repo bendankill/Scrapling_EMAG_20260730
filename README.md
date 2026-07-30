@@ -6,21 +6,36 @@
 
 ## 快速开始
 
+双击激活虚拟环境：
+
 ```bash
-# 1. 激活虚拟环境
 C:\Users\jac\scrapling-env\activate.bat
+```
 
-# 2. 进入项目目录
-cd Scrapling_EMAG
+进入项目，安装依赖：
 
-# 3. 安装依赖
+```bash
+cd C:\Users\jac\scrapling-env\Scrapling_EMAG
 pip install -r requirements.txt
+```
 
-# 4. 编辑类目配置
-notepad config/categories.txt
+## 常用命令
 
-# 5. 运行
+```bash
+# 完整抓取（全部类目，含详情 + 图片）
 python main.py
+
+# 先试试抓前 2 页（120 个商品，约 2 分钟）
+python main.py --list-only --pages 2
+
+# 抓前 5 页含详情（约 10 分钟）
+python main.py --pages 5
+
+# 中断后继续（自动从断点恢复）
+python main.py
+
+# 清除断点重新开始
+python main.py --reset
 ```
 
 ## 多类目采集
@@ -37,16 +52,16 @@ https://www.emag.ro/ssd/c
 
 程序启动后自动依次采集所有类目，无需修改代码。支持注释行（`#` 开头）、空行自动忽略、URL 自动去重。
 
-## 运行模式
+## 全部参数
 
 | 命令 | 说明 |
 |------|------|
 | `python main.py` | 完整模式：列表 + 详情 + 图片 |
 | `python main.py --list-only` | 仅列表页（快速） |
+| `python main.py --pages N` | 每个类目仅抓前 N 页 |
 | `python main.py --no-images` | 不下载图片 |
 | `python main.py --reset` | 清除断点重新开始 |
 | `python main.py --export-only` | 仅导出已有数据 |
-| `python main.py --pages 10` | 每个类目仅抓前10页 |
 | `python main.py --debug` | 调试模式：打印配置后退出 |
 
 ## 项目结构
