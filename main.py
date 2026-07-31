@@ -35,12 +35,17 @@ from scrapling.fetchers import Fetcher
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="eMAG Mouse Category Scraper")
+    p = argparse.ArgumentParser(description="eMAG Multi-Category Scraper")
+    p.add_argument("--auto-discover", action="store_true",
+                   help="自动发现 eMAG 全站商品类目")
+    p.add_argument("--refresh-categories", action="store_true",
+                   help="强制重新扫描类目（清除缓存）")
     p.add_argument("--list-only", action="store_true", help="仅爬列表页")
     p.add_argument("--reset", action="store_true", help="清除断点重新开始")
     p.add_argument("--export-only", action="store_true", help="仅导出已有数据")
     p.add_argument("--no-images", action="store_true", help="不下载图片")
-    p.add_argument("--pages", type=int, default=0, help="限制爬取页数（0=全部）")
+    p.add_argument("--pages", type=int, default=0,
+                   help="限制每类目爬取页数（0=全部；自动发现模式默认10）")
     p.add_argument("--debug", action="store_true", help="调试模式：打印配置后退出")
     return p.parse_args()
 
@@ -128,10 +133,44 @@ def main():
         return
 
     # ---- 加载类目 ----
-    try:
-        categories = load_categories()
-    except (FileNotFoundError, ValueError) as e:
-        logger.error(str(e))
+    categories = []
+
+    if args.auto_discover:
+        # 全站类目自动发现模式
+        from category_discovery import discover_categories
+        config.AUTO_DISCOVER = True
+        logger.info("=" * 60)
+        logger.info("Auto-Discover Mode: 扫描 eMAG 全站商品类目")
+        logger.info("=" * 60)
+
+        discovered = discover_categories(force_refresh=args.refresh_categories)
+        if not discovered:
+            logger.error("未发现任何商品类目，退出")
+            return
+        logger.info(f"发现 {len(discovered)} 个商品类目")
+
+        # 转换为 CategoryInfo 列表
+        from category_loader import CategoryInfo, _extract_category_path
+        for idx, url in enumerate(discovered, 1):
+            path = _extract_category_path(url)
+            if path:
+                categories.append(CategoryInfo(url=url, category_path=path, index=idx))
+
+        # 每类目默认 10 页
+        if args.pages <= 0:
+            args.pages = config.MAX_PAGES_PER_CATEGORY
+            logger.info(f"每类目限制: {config.MAX_PAGES_PER_CATEGORY} 页（默认）")
+
+    else:
+        # 传统模式: 从 categories.txt 加载
+        try:
+            categories = load_categories()
+        except (FileNotFoundError, ValueError) as e:
+            logger.error(str(e))
+            return
+
+    if not categories:
+        logger.error("无可用类目，退出")
         return
 
     # ---- 图片开关 ----

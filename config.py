@@ -32,6 +32,11 @@ BASE_DOMAIN = "https://www.emag.ro"
 # 多类目配置文件
 CATEGORIES_FILE = os.path.join(BASE_DIR, "config", "categories.txt")
 
+# 自动发现类目
+AUTO_DISCOVER = False             # --auto-discover 启动时置为 True
+AUTO_CACHE_FILE = os.path.join(BASE_DIR, "config", "categories_auto.json")
+MAX_PAGES_PER_CATEGORY = 10       # 每类目最大页数（自动发现模式默认值）
+
 # ============================================================
 # 抓取策略
 # ============================================================
