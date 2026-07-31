@@ -43,59 +43,18 @@ def _normalize_value(v) -> str:
 
 
 # ============================================================
-# 收集所有字段名（非常重要：因为规格参数字段不固定）
+# 收集所有字段名（从已规范化的产品中动态发现）
 # ============================================================
-FIELD_ORDER = [
-    "pnk", "product_id", "offer_id", "family_id",
-    "title", "url", "category_trail",
-    "sale_price_ron", "prp_price_ron", "currency", "is_promo", "discount_pct",
-    "installment",
-    "avg_rating", "review_count", "star_pct",
-    "stock_text", "is_in_stock", "delivery_estimate",
-    "image_url", "image_path", "image_count",
-    "badges", "is_genius", "is_top_favorite", "is_super_pret",
-    "_has_family", "_scm_category",
-    # 详情页字段
-    "ld_name", "ld_sku", "ld_mpn", "ld_product_id",
-    "brand", "manufacturer", "ld_category",
-    "ld_price", "ld_price_currency", "ld_availability",
-    "ld_rating_value", "ld_review_count",
-    "ld_seller_name", "seller_name", "seller_rating", "seller_type",
-    "warranty", "shipping_info",
-    "description",
-    "variants", "faq_count",
-    "all_images", "_detail_url",
-]
-
-
 def _collect_all_fields(products: list[dict]) -> list[str]:
-    """收集所有产品中出现过的全部字段，保持合理的顺序"""
-    # 基础顺序
-    all_fields = list(FIELD_ORDER)
-
-    # 自动发现规格字段（以 spec_ 开头或非标准字段）
-    spec_fields = set()
-    other_fields = set()
+    """收集所有产品中出现过的全部字段，保持首个产品的顺序"""
+    seen = set()
+    fields = []
     for p in products:
         for k in p:
-            if k in all_fields:
-                continue
-            if k.startswith("spec_") or k.startswith("ld_prop_"):
-                spec_fields.add(k)
-            else:
-                other_fields.add(k)
-
-    # 添加非规格字段
-    for f in sorted(other_fields):
-        if f not in all_fields:
-            all_fields.append(f)
-
-    # 最后添加规格字段
-    for f in sorted(spec_fields):
-        if f not in all_fields:
-            all_fields.append(f)
-
-    return all_fields
+            if k not in seen:
+                seen.add(k)
+                fields.append(k)
+    return fields
 
 
 # ============================================================
@@ -103,6 +62,8 @@ def _collect_all_fields(products: list[dict]) -> list[str]:
 # ============================================================
 def save_csv(products: list[dict], filepath: str = None) -> str:
     """保存为 CSV，字段自动展开"""
+    from field_mapper import normalize_product
+
     filepath = filepath or config.CSV_FILE
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
@@ -110,6 +71,7 @@ def save_csv(products: list[dict], filepath: str = None) -> str:
         logger.warning("没有产品数据可保存到 CSV")
         return filepath
 
+    products = [normalize_product(p) for p in products]
     fields = _collect_all_fields(products)
     logger.info(f"CSV 字段总数: {len(fields)}")
 
@@ -130,12 +92,16 @@ def save_csv(products: list[dict], filepath: str = None) -> str:
 # ============================================================
 def save_excel(products: list[dict], filepath: str = None) -> str:
     """保存为 Excel（需要 openpyxl）"""
+    from field_mapper import normalize_product
+
     filepath = filepath or config.EXCEL_FILE
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
     if not products:
         logger.warning("没有产品数据可保存到 Excel")
         return filepath
+
+    products = [normalize_product(p) for p in products]
 
     try:
         from openpyxl import Workbook
@@ -173,12 +139,16 @@ def save_excel(products: list[dict], filepath: str = None) -> str:
 # ============================================================
 def save_json(products: list[dict], filepath: str = None) -> str:
     """保存为 JSON"""
+    from field_mapper import normalize_product
+
     filepath = filepath or config.JSON_FILE
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
     if not products:
         logger.warning("没有产品数据可保存到 JSON")
         return filepath
+
+    products = [normalize_product(p) for p in products]
 
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(products, f, ensure_ascii=False, indent=2, default=str)
