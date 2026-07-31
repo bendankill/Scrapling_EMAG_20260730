@@ -258,18 +258,9 @@ def parse_list_page_meta(response: ScraplingResponse) -> dict:
     if meta["total_products"] > 0:
         meta["total_pages"] = (meta["total_products"] + meta["per_page"] - 1) // meta["per_page"]
 
-    # ---- 通过末页链接推导总页数（兜底） ----
-    if meta["total_pages"] <= 0:
-        for sel in [
-            ".pagination a:last-of-type::attr(href)",
-            "[class*=pagination] li:last-child a::attr(href)",
-        ]:
-            href = response.css(sel).get()
-            if href:
-                m = re.search(r"/p(\d+)/", href)
-                if m:
-                    meta["total_pages"] = int(m.group(1))
-                    break
+    # 注：不通过末页链接推导总页数
+    # eMAG 第一页的分页栏只显示 [1] [2] →，末页链接指向 /p2/ 而非真实末页
+    # 无法可靠获取总页数时返回 0，由 crawler 层按用户 --pages 或空页检测控制
 
     return meta
 

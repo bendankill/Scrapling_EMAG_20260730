@@ -116,6 +116,15 @@ def crawl_list_pages(
         logger.error("无法获取首页，退出")
         return [], {"error": "首页获取失败"}
 
+    # ---- 保存首页 HTML 用于调试 ----
+    try:
+        debug_html = os.path.join(config.LOGS_DIR, "page1.html")
+        with open(debug_html, "w", encoding="utf-8") as f:
+            f.write(first_page.html_content)
+        logger.debug(f"首页 HTML 已保存: {debug_html} ({len(first_page.html_content)} bytes)")
+    except Exception:
+        pass
+
     meta = parse_list_page_meta(first_page)
     website_total_pages = meta["total_pages"]
     total_products_count = meta["total_products"]
@@ -124,16 +133,25 @@ def crawl_list_pages(
         f"{website_total_pages} 页, 每页 {meta['per_page']} 个"
     )
 
-    # 验证页数合理性
-    if website_total_pages <= 0 or website_total_pages > 1000:
-        logger.warning(f"网站总页数异常 ({website_total_pages})，限制为 500")
-        website_total_pages = min(website_total_pages, 500) if website_total_pages > 500 else 500
+    # 验证页数合理性（仅当无用户限制时才依赖网站值）
+    if website_total_pages <= 0:
+        logger.warning(f"无法解析网站总页数，将根据用户限制和空页检测控制翻页")
+        website_total_pages = 0  # 标记为未知
+    elif website_total_pages > 1000:
+        logger.warning(f"网站总页数过大 ({website_total_pages})，限制为 1000")
+        website_total_pages = 1000
 
-    # ---- 关键修复：用 max_pages 钳制翻页上限 ----
-    total_pages = website_total_pages
-    if max_pages > 0 and max_pages < total_pages:
-        total_pages = max_pages
-        logger.info(f"用户限制: 最多抓取 {max_pages} 页（网站实际有 {website_total_pages} 页）")
+    # ---- 翻页上限：用户 --pages N 优先，网站总页数兜底 ----
+    if max_pages > 0:
+        total_pages = max_pages  # 用户指定 → 以此为准
+        logger.info(
+            f"翻页上限: 用户指定 {max_pages} 页"
+            + (f"（网站显示 {website_total_pages} 页）" if website_total_pages > 0
+               else "（网站总页数未知）")
+        )
+    else:
+        total_pages = website_total_pages if website_total_pages > 0 else 500
+        logger.info(f"翻页上限: 自动检测 {total_pages} 页（网站总页数={website_total_pages}）")
 
     # 处理第一页
     if 1 not in completed_pages:
