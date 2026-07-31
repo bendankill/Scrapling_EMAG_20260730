@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v1.0.3 (2026-07-31)
+
+### Added
+
+- 输出数据结构规范化：中文字段名（PNK码/产品标题/前端价格等）
+- 类目自动拆分：`category_trail` → 一级类~五级类
+- 多分隔符兼容：`/ > >> | \ →`
+- `field_mapper.py`：字段映射/类目拆分/排序 统一模块
+- `category_discovery.py`：eMAG 全站类目自动发现
+- `--auto-discover` 模式
+- 每类目独立页数限制 + PNK 跨类目去重
+- 首页 HTML 调试保存 (`logs/page1.html`)
+
+### Fixed
+
+- P0：`all_products.extend()` 重复执行导致商品数翻倍
+- P0：断点泄露导致跨运行继承分页状态
+- P0：网站总页数解析错误导致 `--pages N` 被截断
+- P0：`min(website, max_pages)` 在网站显示 2 页时截断用户指定的 3 页
+- meta 解析多选择器兜底 + 统计信息与实际采集一致
+
+### Changed
+
+- JSON/CSV/Excel 三种导出字段顺序完全一致
+- 翻页上限：`--pages N` 优先，网站总页数仅作兜底
+- 每页日志格式：`Page N | Parsed: X | Running Total: Y`
+
+---
+
 ## v1.0.2 (2026-07-31)
 
 ### Fixed
