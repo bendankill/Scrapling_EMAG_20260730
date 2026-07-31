@@ -2,7 +2,7 @@
 
 基于 [Scrapling](https://github.com/D4Vinci/Scrapling) 的 eMAG 电商爬虫，支持多类目批量采集。
 
-**Current Version: v1.0**
+**Current Version: v1.0.2**
 
 ## 快速开始
 
@@ -128,6 +128,8 @@ Scrapling_EMAG/
 
 | Version | Date | Notes |
 |---------|------|-------|
-| v1.0 | 2026-07-30 | 首个正式稳定版本：多类目采集、运行目录归档、统一输出管理、配置化类目管理 |
+| v1.0.2 | 2026-07-31 | 翻页空页提前退出保护 |
+| v1.0.1 | 2026-07-30 | 详情页全图库下载 |
+| v1.0   | 2026-07-30 | 首个正式稳定版本 |
 
 详细变更见 [CHANGELOG.md](CHANGELOG.md)。

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v1.0.2 (2026-07-31)
+
+### Fixed
+
+- 翻页循环增加空页提前退出：`parse_list_page_meta` 解析失败（总页数=0）导致降级为 500 页上限时，若当前页无商品则自动 `break`，避免数千次无效请求
+
+---
+
 ## v1.0.1 (2026-07-30)
 
 ### Changed
