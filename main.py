@@ -45,7 +45,9 @@ def parse_args():
     p.add_argument("--export-only", action="store_true", help="仅导出已有数据")
     p.add_argument("--no-images", action="store_true", help="不下载图片")
     p.add_argument("--pages", type=int, default=0,
-                   help="限制每类目爬取页数（0=全部；自动发现模式默认10）")
+                   help="限制爬取页数（0=全部；单类目模式）")
+    p.add_argument("--category-pages", type=int, default=0,
+                   help="每个一级类目采集页数（默认 10；多类目模式）")
     p.add_argument("--debug", action="store_true", help="调试模式：打印配置后退出")
     return p.parse_args()
 
@@ -77,7 +79,8 @@ def print_debug_banner(args):
     print("  DEBUG - Configuration")
     print("=" * 60)
     print(f"  Mode:           {', '.join(mode)}")
-    print(f"  Max Pages:      {args.pages if args.pages > 0 else 'ALL'}")
+    print(f"  Category Pages: {args.category_pages if args.category_pages > 0 else args.pages if args.pages > 0 else config.MAX_PAGES_PER_CATEGORY}（默认）")
+    print(f"  --pages (legacy): {args.pages if args.pages > 0 else 'unset'}")
     print(f"  Concurrent:     list={config.CONCURRENT_LIST}, detail={config.CONCURRENT_DETAIL}")
     print(f"  Delay:          {config.MIN_DELAY}-{config.MAX_DELAY}s")
     print(f"  Detail Delay:   {config.MIN_DETAIL_DELAY}-{config.MAX_DETAIL_DELAY}s")
@@ -156,10 +159,9 @@ def main():
             if path:
                 categories.append(CategoryInfo(url=url, category_path=path, index=idx))
 
-        # 每类目默认 10 页
-        if args.pages <= 0:
-            args.pages = config.MAX_PAGES_PER_CATEGORY
-            logger.info(f"每类目限制: {config.MAX_PAGES_PER_CATEGORY} 页（默认）")
+        # 每类目默认页数
+        per_cat = args.category_pages or args.pages or config.MAX_PAGES_PER_CATEGORY
+        logger.info(f"每类目限制: {per_cat} 页（--category-pages={args.category_pages}, --pages={args.pages}）")
 
     else:
         # 传统模式: 从 categories.txt 加载
@@ -177,62 +179,81 @@ def main():
     if args.no_images:
         config.DOWNLOAD_IMAGES = False
 
+    # ---- 每类目页数：--category-pages > --pages > 默认 10 ----
+    per_cat_pages = args.category_pages or args.pages or config.MAX_PAGES_PER_CATEGORY
+
     # ---- 统计 ----
     stats = {
         "total_categories": len(categories),
         "categories_done": 0,
         "categories_failed": 0,
-        "website_total_pages": 0,
-        "page_limit": args.pages if args.pages > 0 else "ALL",
         "pages_crawled": 0,
         "total_products": 0,
+        "dedup_skipped": 0,
         "success_detail": 0,
         "fail_detail": 0,
     }
 
-    # 所有类目的产品汇总
+    # 去重：跨类目 PNK 唯一
+    seen_pnks: set[str] = set()
     all_products = []
 
     # ================================================================
-    # Phase 1: 遍历所有类目，爬取列表页
+    # Phase 1: 遍历所有类目，每类目独立计数
     # ================================================================
     print()
     logger.info("=" * 60)
-    logger.info("Phase 1: 多类目列表页采集")
+    logger.info(f"Phase 1: {len(categories)} 个类目, 每类目 ≤{per_cat_pages} 页")
     logger.info("=" * 60)
 
     for cat in categories:
         print()
-        logger.info("-" * 50)
-        logger.info(f"Start Category [{cat.index}/{len(categories)}]: {cat.url}")
-        logger.info(f"  Category Path: {cat.category_path}")
-        logger.info("-" * 50)
+        logger.info("=" * 50)
+        logger.info(f"Category [{cat.index}/{len(categories)}]: {cat.category_path}")
+        logger.info(f"  URL:  {cat.url[:100]}")
+        logger.info(f"  Target Pages: {per_cat_pages}")
+        logger.info("=" * 50)
 
         try:
             cat_products, cat_stats = crawl_list_pages(
                 start_url=cat.url,
                 category_path=cat.category_path,
-                max_pages=args.pages,
+                max_pages=per_cat_pages,
             )
 
-            if cat_products:
-                all_products.extend(cat_products)
-                stats["categories_done"] += 1
-                stats["pages_crawled"] += cat_stats.get("pages_crawled", 0)
-                stats["website_total_pages"] += cat_stats.get("website_total_pages", 0)
-                logger.info(
-                    f"Finished Category [{cat.index}]: {cat.category_path} "
-                    f"→ {len(cat_products)} 个商品, "
-                    f"{cat_stats.get('pages_crawled', 0)} 页"
-                )
-            else:
+            if not cat_products:
                 logger.warning(f"类目无数据 [{cat.index}]: {cat.category_path}，跳过")
                 stats["categories_failed"] += 1
+                continue
+
+            # ---- PNK 去重 ----
+            new_count = 0
+            dup_count = 0
+            for p in cat_products:
+                pnk = p.get("pnk", "")
+                if pnk and pnk in seen_pnks:
+                    dup_count += 1
+                    continue
+                if pnk:
+                    seen_pnks.add(pnk)
+                all_products.append(p)
+                new_count += 1
+
+            cat_pages = cat_stats.get("pages_crawled", 0)
+            stats["categories_done"] += 1
+            stats["pages_crawled"] += cat_pages
+            stats["dedup_skipped"] += dup_count
+
+            logger.info(
+                f"Finished [{cat.category_path}]: "
+                f"{cat_pages} 页, {new_count} 商品"
+                + (f"（去重 {dup_count}）" if dup_count > 0 else "")
+            )
 
         except Exception as e:
             logger.error(f"类目采集异常 [{cat.index}]: {cat.category_path} — {e}")
             stats["categories_failed"] += 1
-            continue  # 跳过失败的类目，继续下一个
+            continue
 
     stats["total_products"] = len(all_products)
 
@@ -320,10 +341,9 @@ def print_summary(stats: dict, start_time: float):
     print(f"  类目总数: {stats.get('total_categories', '?')}")
     print(f"  类目成功: {stats.get('categories_done', 0)}")
     print(f"  类目失败: {stats.get('categories_failed', 0)}")
-    print(f"  网站总页数: {stats.get('website_total_pages', '?')}")
-    print(f"  页数限制: {stats.get('page_limit', 'ALL')}")
     print(f"  实际抓取: {stats.get('pages_crawled', 0)} 页")
     print(f"  共商品: {stats.get('total_products', 0)} 个")
+    print(f"  去重跳过: {stats.get('dedup_skipped', 0)} 个")
     print(f"  详情成功: {stats.get('success_detail', 0)} 个")
     print(f"  详情失败: {stats.get('fail_detail', 0)} 个")
     print()
