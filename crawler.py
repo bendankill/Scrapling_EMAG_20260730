@@ -203,6 +203,11 @@ def crawl_list_pages(
         _, products = fetch_single_page(page_num)
         all_products.extend(products)
 
+        # 当前页无商品 → 已到最后一页，停止翻页
+        if not products:
+            logger.info(f"第 {page_num} 页无商品，已到最后一页，提前停止翻页")
+            break
+
         # 每5页保存一次完整断点
         if page_num % config.CHECKPOINT_INTERVAL == 0:
             save_checkpoint(checkpoint_file, {
