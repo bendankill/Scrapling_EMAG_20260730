@@ -108,9 +108,8 @@ def main():
         logger.info("调试模式：已打印配置，程序退出")
         return
 
-    # ---- 重置 ----
-    if args.reset:
-        reset_checkpoints()
+    # ---- 每次运行清除上一轮断点，确保分页计数从 0 开始 ----
+    reset_checkpoints()
 
     # ---- 仅导出 ----
     if args.export_only:

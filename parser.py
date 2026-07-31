@@ -222,24 +222,54 @@ def parse_list_page_meta(response: ScraplingResponse) -> dict:
         "per_page": 60,
     }
 
-    # 总数
-    total_el = response.css(".sidebar-total-products-info::text").get()
-    if total_el:
-        m = re.search(r"(\d[\d.]*)\s*produse", total_el)
-        if m:
-            meta["total_products"] = int(m.group(1).replace(".", ""))
+    # ---- 总数：多选择器兜底 ----
+    total_products = 0
+    for sel in [
+        ".sidebar-total-products-info::text",
+        "[class*=total-products]::text",
+        "[class*=results-count]::text",
+        "[class*=category-headline]::text",
+        ".listing-count::text",
+    ]:
+        text = response.css(sel).get()
+        if text:
+            m = re.search(r"(\d[\d.]*)\s*(?:produse|produs|rezultate|result)", text.strip())
+            if m:
+                total_products = int(m.group(1).replace(".", ""))
+                break
+    meta["total_products"] = total_products
 
-    # 当前页码
-    current_el = response.css("[class*=active][class*=pagination] a::text, .pagination .active a::text, .pagination .active::text").get()
-    if current_el:
-        try:
-            meta["current_page"] = int(current_el.strip())
-        except ValueError:
-            pass
+    # ---- 当前页码 ----
+    for sel in [
+        ".pagination .active::text",
+        "[class*=active][class*=pagination] a::text",
+        "[class*=pagination] [class*=active]::text",
+        "[aria-current=\"page\"]::text",
+    ]:
+        text = response.css(sel).get()
+        if text:
+            try:
+                meta["current_page"] = int(text.strip())
+                break
+            except ValueError:
+                continue
 
-    # 推导总页数
+    # ---- 推导总页数 ----
     if meta["total_products"] > 0:
         meta["total_pages"] = (meta["total_products"] + meta["per_page"] - 1) // meta["per_page"]
+
+    # ---- 通过末页链接推导总页数（兜底） ----
+    if meta["total_pages"] <= 0:
+        for sel in [
+            ".pagination a:last-of-type::attr(href)",
+            "[class*=pagination] li:last-child a::attr(href)",
+        ]:
+            href = response.css(sel).get()
+            if href:
+                m = re.search(r"/p(\d+)/", href)
+                if m:
+                    meta["total_pages"] = int(m.group(1))
+                    break
 
     return meta
 

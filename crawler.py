@@ -140,7 +140,7 @@ def crawl_list_pages(
         products_p1 = parse_list_page(first_page)
         all_products.extend(products_p1)
         completed_pages.add(1)
-        logger.info(f"第 1 页: {len(products_p1)} 个商品")
+        logger.info(f"Page 1 | Parsed: {len(products_p1)} | Running Total: {len(all_products)}")
         save_checkpoint(checkpoint_file, {
             "completed_pages": list(completed_pages),
             "products": all_products,
@@ -179,7 +179,8 @@ def crawl_list_pages(
             return page_num, []
 
         products = parse_list_page(resp)
-        logger.info(f"第 {page_num} 页: {len(products)} 个商品")
+        all_products.extend(products)
+        logger.info(f"Page {page_num} | Parsed: {len(products)} | Running Total: {len(all_products)}")
 
         # 定期保存断点
         with page_lock:
@@ -188,20 +189,20 @@ def crawl_list_pages(
             if pages_done % config.CHECKPOINT_INTERVAL == 0:
                 save_checkpoint(checkpoint_file, {
                     "completed_pages": list(completed_pages),
-                    "products": all_products + products,
+                    "products": all_products,
                     "total_pages": total_pages,
                     "total_products_count": total_products_count,
                 })
 
         if progress_callback:
-            progress_callback(page_num, total_pages, len(all_products) + len(products))
+            progress_callback(page_num, total_pages, len(all_products))
 
         return page_num, products
 
     # 顺序执行（列表页不适合并发太多，容易被封）
     for page_num in pages_to_fetch:
         _, products = fetch_single_page(page_num)
-        all_products.extend(products)
+        # all_products 已在 fetch_single_page 内部 extend
 
         # 当前页无商品 → 已到最后一页，停止翻页
         if not products:
