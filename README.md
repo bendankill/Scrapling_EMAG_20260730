@@ -1,4 +1,4 @@
-# eMAG Multi-Category Scraper
+# eMAG Multi-Category Scraper v1.0.4
 
 基于 [Scrapling](https://github.com/D4Vinci/Scrapling) 的 eMAG 电商爬虫，支持多类目批量采集。
 
@@ -6,131 +6,110 @@
 
 ## 快速开始
 
-双击激活虚拟环境：
-
 ```bash
-C:\Users\jac\scrapling-env\activate.bat
-```
-
-进入项目，安装依赖：
-
-```bash
-cd C:\Users\jac\scrapling-env\Scrapling_EMAG
+call C:\Users\jac\scrapling-env\activate.bat
+cd /d C:\Users\jac\scrapling-env\Scrapling_EMAG
 pip install -r requirements.txt
 ```
 
-## 常用命令
-
-```bash
-# 完整抓取（全部类目，含详情 + 图片）
-python main.py
-
-# 先试试抓前 2 页（120 个商品，约 2 分钟）
-python main.py --list-only --pages 2
-
-# 抓前 5 页含详情（约 10 分钟）
-python main.py --pages 5
-
-# 中断后继续（自动从断点恢复）
-python main.py
-
-# 清除断点重新开始
-python main.py --reset
-```
-
-## 多类目采集
-
-编辑 `config/categories.txt`，每行一个类目 URL：
-
-```
-https://www.emag.ro/mouse/c
-https://www.emag.ro/laptop-tablete/c
-https://www.emag.ro/monitoare/c
-https://www.emag.ro/placi-video/c
-https://www.emag.ro/ssd/c
-```
-
-程序启动后自动依次采集所有类目，无需修改代码。支持注释行（`#` 开头）、空行自动忽略、URL 自动去重。
-
 ## 全部参数
 
-| 命令 | 说明 |
+| 参数 | 说明 |
 |------|------|
-| `python main.py` | 完整模式：列表 + 详情 + 图片 |
-| `python main.py --list-only` | 仅列表页（快速） |
-| `python main.py --pages N` | 每个类目仅抓前 N 页 |
-| `python main.py --no-images` | 不下载图片 |
-| `python main.py --reset` | 清除断点重新开始 |
-| `python main.py --export-only` | 仅导出已有数据 |
-| `python main.py --debug` | 调试模式：打印配置后退出 |
+| `--list-only` | 仅抓列表页并导出。默认不访问详情页、不下载图片 |
+| `--reset` | 清除所有断点重新开始 |
+| `--export-only` | 仅从已有断点导出数据，不发起任何网络请求 |
+| `--no-images` | 所有模式下不下载图片 |
+| `--download-list-images` | `--list-only` 模式下也下载列表页缩略图 |
+| `--pages N` | 每个类目抓取 N 页 |
+| `--category-pages N` | 每个类目抓取 N 页（优先级高于 `--pages`） |
+| `--auto-discover` | 从 eMAG 首页导航自动发现类目 |
+| `--refresh-categories` | 忽略类目缓存，重新扫描首页导航 |
+| `--debug` | 打印配置后退出，不发起采集 |
 
-## 项目结构
+## 行为说明
+
+### 页数控制
+- 普通模式未指定 `--pages` 时，根据网站总页数自动抓取所有页
+- 自动发现模式未指定页数时，默认每类目 10 页（安全上限）
+- `--category-pages` > `--pages` > 默认值
+
+### 断点续爬
+- 不带 `--reset` 运行：尝试恢复上次断点继续采集
+- `--reset`：删除所有断点，完全重新开始
+- `--export-only`：不清除断点，不访问网络
+
+### list-only
+- 默认不访问商品详情页
+- 默认不下载图片（使用 `--download-list-images` 显式启用）
+- 仅导出列表页数据
+
+### 域名安全
+- 只接受 `emag.ro` 及 `*.emag.ro` 合法子域名
+- 拒绝 `evil-emag.ro`、`emag.ro.evil.com` 等伪造域名
+- 拒绝 `/d` 部门页（仅支持 `/c` 商品列表页）
+
+### 退出码
+| 码 | 含义 |
+|----|------|
+| 0 | 完全成功 |
+| 1 | 一般失败（无数据/全部失败） |
+| 2 | 参数错误 |
+| 3 | 部分完成（存在失败页或部分类目失败） |
+
+### 反爬处理
+- HTTP 403、429、500-504 自动重试 3 次（指数退避）
+- HTTP 511/WAF/Captcha 视为请求失败，不误判为正常空页
+- 失败页计入 `failed_pages`，最终报告显示部分完成
+
+## 输出目录
+
+每次运行自动创建时间戳目录：
 
 ```
-Scrapling_EMAG/
-├── main.py            # 主程序入口
-├── config.py          # 配置文件
-├── category_loader.py # 多类目配置加载
-├── crawler.py         # 爬取模块（请求+重试+并发）
-├── parser.py          # 解析模块（HTML → 结构化数据）
-├── save.py            # 保存模块（CSV/Excel/JSON/图片）
-├── image_handler.py   # 图库解析 + 下载模块
-├── logger.py          # 日志模块
-├── utils.py           # 工具函数
-├── run_context.py     # 运行目录管理
-├── requirements.txt   # 依赖
-├── README.md          # 本文档
-├── config/
-│   └── categories.txt # 类目 URL 配置
-├── output/            # 输出（按运行时间分目录）
-├── checkpoint/        # 断点数据
-└── images/            # （已废弃，图片在 output/<时间>/images/）
+output/<YYYYMMDD_HHMMSS>/
+├── products.csv
+├── products.xlsx
+├── products.json
+├── images/
+│   └── {PNK}_{001}.jpg ...
+└── logs/
+    ├── crawl.log
+    ├── error.log
+    └── network_debug.log
 ```
 
-## 特性
+## 用户验收命令
 
-- **多类目采集**：通过配置文件管理，增加类目只需添加一行 URL
-- 断点续爬：中断后自动从上次位置继续（按类目隔离）
-- 失败重试：自动重试 3 次，指数退避
-- 类目容错：某个类目失败不影响其他类目
-- 随机延迟：2-5 秒随机等待防封
-- UA 轮换：8 个 User-Agent 轮流使用
-- 并发控制：列表页顺序，详情页 4 并发
-- 自动字段展开：规格参数自动展开为独立列
+```bat
+REM 最快一页列表测试
+python main.py --reset --list-only --pages 1
 
-## 商品图片下载
+REM 两页列表验收
+python main.py --reset --list-only --pages 2
 
-当前版本支持：
+REM 两页完整模式（含详情，不含图片）
+python main.py --reset --pages 2 --no-images
 
-- 自动解析商品详情页图库（`<img>` + `data-src` + JSON-LD 等多源提取）
-- 下载全部主页图片（非仅主图）
-- 图片编号命名：`{PNK}_{001}.jpg`、`{PNK}_{002}.jpg` ...
-- 自动去重（相同图片仅下载一次）
-- 高清优先（优先下载无尺寸限制的原图）
-- 图片下载失败不影响商品采集
+REM 断点续爬（先 Ctrl+C 中断，再不带 reset 重运行）
+python main.py --reset --pages 5 --no-images
+REM ↑ 按 Ctrl+C
+python main.py --pages 5 --no-images
 
-## 抓取策略
+REM 仅导出断点
+python main.py --export-only --no-images
 
-1. **列表页**：纯 HTTP 抓取（服务端渲染），CSS 选择器 + data-product JSON
-2. **详情页**：纯 HTTP 抓取，JSON-LD 结构化数据 + HTML 规格表
-3. eMAG 页面全部为服务端渲染，无需浏览器
-
-## 配置
-
-修改 `config.py`：
-
-- `CONCURRENT_DETAIL`：详情页并发数（默认 4）
-- `MIN_DELAY / MAX_DELAY`：请求间隔（默认 2-5 秒）
-- `MAX_RETRIES`：最大重试次数（默认 3）
-- `CHECKPOINT_INTERVAL`：断点保存间隔
+REM 自动发现
+python main.py --reset --auto-discover --refresh-categories --category-pages 1 --list-only
+```
 
 ## Version History
 
 | Version | Date | Notes |
 |---------|------|-------|
-| v1.0.4 | 2026-08-03 | 核心数据完整性修复 + 自动化测试 + CI |
-| v1.0.3 | 2026-07-31 | 数据结构规范化 + P0 分页修复 + 类目自动发现 |
-| v1.0.2 | 2026-07-31 | 翻页空页提前退出保护 |
+| v1.0.4 | 2026-08-03 | 数据完整性修复 + 退出码 + 域名安全 + 自动化测试 |
+| v1.0.3 | 2026-07-31 | 数据结构规范化 + P0 分页修复 |
+| v1.0.2 | 2026-07-31 | 翻页空页提前退出 |
 | v1.0.1 | 2026-07-30 | 详情页全图库下载 |
 | v1.0   | 2026-07-30 | 首个正式稳定版本 |
 

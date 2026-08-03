@@ -75,12 +75,22 @@ def load_categories(filepath: str = None) -> list[CategoryInfo]:
     # ---- 构建 CategoryInfo ----
     categories = []
     for idx, url in enumerate(urls, 1):
-        # 验证域名
-        if "emag.ro" not in url:
-            logger.warning(f"非 eMAG 域名，跳过: {url[:80]}")
+        # 严格域名验证
+        from urllib.parse import urlparse as _up
+        try:
+            p = _up(url)
+            host = (p.hostname or "").lower()
+            if host != "emag.ro" and not host.endswith(".emag.ro"):
+                logger.warning(f"非 eMAG 域名（{host}），跳过: {url[:80]}")
+                continue
+            if p.scheme not in ("http", "https"):
+                logger.warning(f"非法 scheme，跳过: {url[:80]}")
+                continue
+        except Exception:
+            logger.warning(f"URL 解析失败，跳过: {url[:80]}")
             continue
         # 验证路径格式（商品列表页必须以 /c 结尾）
-        parsed_path = urlparse(url).path.rstrip("/")
+        parsed_path = _up(url).path.rstrip("/")
         if not parsed_path.endswith("/c"):
             logger.warning(
                 f"URL 路径不以 /c 结尾（非商品列表页），跳过: {url[:80]}\n"

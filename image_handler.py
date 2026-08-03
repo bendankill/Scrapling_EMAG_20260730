@@ -217,7 +217,7 @@ class ImageDownloader:
         # 更新产品的 image_path 和 image_count
         for product in products:
             pnk = product.get("pnk", "")
-            paths = self._find_local_images(pnk)
+            paths = _find_local_images(pnk)
             product["image_path"] = paths[0] if paths else ""
             product["image_count"] = len(paths)
 
@@ -296,11 +296,14 @@ def _is_valid_image(data: bytes) -> bool:
         return False
     return False
 
-    def _find_local_images(self, pnk: str) -> list[str]:
-        """查找本地已下载的该商品图片"""
-        import glob as gb
-        pattern = os.path.join(config.IMAGES_DIR, f"{pnk}_*")
-        return sorted(gb.glob(pattern))
+
+# ---- ImageDownloader 辅助方法 ----
+
+def _find_local_images(pnk: str) -> list[str]:
+    """查找本地已下载的商品图片（模块级函数）"""
+    import glob as gb
+    pattern = os.path.join(config.IMAGES_DIR, f"{pnk}_*")
+    return sorted(gb.glob(pattern))
 
 
 # ============================================================

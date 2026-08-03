@@ -70,26 +70,56 @@ def print_debug_banner(args, effective_pages):
     print()
 
 
-def _dedup_key(p: dict) -> str:
-    """生成稳定去重键: PNK > URL > product_id+offer_id > 无键保留"""
+def _dedup_key(p: dict) -> str | None:
+    """生成稳定去重键: PNK > URL > product_id+offer_id > None(保留)"""
     pnk = p.get("pnk", "").strip()
     if pnk: return f"pnk:{pnk}"
     url = p.get("url", "").strip()
-    if url: return f"url:{url}"
+    if url: return f"url:{_normalize_url_key(url)}"
     pid = p.get("product_id", "")
     oid = p.get("offer_id", "")
     if pid or oid: return f"id:{pid}:{oid}"
-    return f"hash:{hash(str(sorted(p.items()))) & 0x7FFFFFFF}"
+    return None  # 无稳定标识 → 保留不合并
+
+
+def _normalize_url_key(url: str) -> str:
+    """规范化URL用于去重键：去协议、去尾部斜杠、去query"""
+    from urllib.parse import urlparse
+    p = urlparse(url)
+    path = p.path.rstrip("/")
+    return f"{p.netloc}{path}"
+
+
+def _is_valid_emag_url(url: str) -> bool:
+    """严格验证是否为合法的 eMAG 商品列表页 URL"""
+    from urllib.parse import urlparse
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    host = (p.hostname or "").lower()
+    # 只允许 emag.ro 或 *.emag.ro
+    if host != "emag.ro" and not host.endswith(".emag.ro"):
+        return False
+    # 必须 /c 结尾（商品列表页）
+    if not p.path.rstrip("/").endswith("/c"):
+        return False
+    return True
 
 
 def dedup_products(products: list[dict]) -> tuple[list[dict], int]:
-    """跨类目去重，返回 (去重后列表, 跳过数量)"""
+    """跨类目去重，返回 (去重后列表, 跳过数量)。
+    无稳定标识(None键)的商品直接保留，不合并。"""
     seen = set()
     result = []
     skipped = 0
     for p in products:
         key = _dedup_key(p)
-        if key not in seen:
+        if key is None:
+            result.append(p)  # 无稳定标识：直接保留
+        elif key not in seen:
             seen.add(key)
             result.append(p)
         else:
@@ -98,31 +128,37 @@ def dedup_products(products: list[dict]) -> tuple[list[dict], int]:
 
 
 def do_export_only():
+    """从断点导出，使用与正常抓取相同的去重逻辑"""
     list_files = gb.glob(os.path.join(config.CHECKPOINT_DIR, "list_pages_*.json"))
     all_products = []
-    seen_pnks = set()
     for lf in sorted(list_files):
         cp = load_checkpoint(lf)
-        if cp:
-            for p in cp.get("products", []):
-                pnk = p.get("pnk", "")
-                if pnk and pnk not in seen_pnks:
-                    seen_pnks.add(pnk)
-                    all_products.append(p)
+        if cp and cp.get("products"):
+            all_products.extend(cp["products"])
+
     if not all_products:
         logger.error("未找到任何有效断点数据。请先运行一次采集（python main.py）生成断点。")
-        return
+        return 1
+
+    # 共用去重
+    all_products, dedup_skipped = dedup_products(all_products)
+    if dedup_skipped:
+        logger.info(f"去重跳过: {dedup_skipped}")
+
+    # 合并详情
     detail_cp = load_checkpoint(config.CHECKPOINT_DETAIL_PAGES)
     detail_map = detail_cp.get("detail_data", {}) if detail_cp else {}
     for p in all_products:
         pnk = p.get("pnk", "")
         if pnk in detail_map:
             p.update(detail_map[pnk])
-    logger.info(f"从断点加载: {len(all_products)} 个商品（去重后）")
+
+    logger.info(f"导出 {len(all_products)} 个商品（去重后）")
     save_csv(all_products)
     save_excel(all_products)
     save_json(all_products)
-    print(f"\nExport complete: {len(all_products)} products\n  {config.CSV_FILE}\n  {config.EXCEL_FILE}\n  {config.JSON_FILE}")
+    print(f"\nExport complete: {len(all_products)} products")
+    return 0
 
 
 def export_all(products):
@@ -139,7 +175,12 @@ def print_summary(stats: dict, start_time: float):
     print("  抓取完成!")
     print("=" * 60)
     print(f"  耗时: {h}h {m}m {s}s")
-    print(f"  类目: {stats.get('categories_done',0)}成功/{stats.get('categories_failed',0)}失败")
+    done = stats.get("categories_done", 0)
+    part = stats.get("categories_partial", 0)
+    fail = stats.get("categories_failed", 0)
+    print(f"  类目: {done}成功/{part}部分/{fail}失败")
+    if stats.get("failed_pages", 0):
+        print(f"  失败页: {stats['failed_pages']}")
     print(f"  页数限制: {stats.get('page_limit', 'ALL')}")
     print(f"  实际抓取: {stats.get('pages_crawled', 0)} 页")
     print(f"  共商品: {stats.get('total_products', 0)} 个")
@@ -159,29 +200,29 @@ def print_summary(stats: dict, start_time: float):
 
 
 def _build_category_infos(urls: list[str]) -> list[CategoryInfo]:
-    """将 URL 字符串列表转为 CategoryInfo 列表，过滤非商品列表页"""
-    from urllib.parse import urlparse
+    """将 URL 字符串列表转为 CategoryInfo 列表，严格验证"""
     result = []
-    for idx, url in enumerate(urls, 1):
-        parsed = urlparse(url)
-        if not parsed.path.rstrip("/").endswith("/c"):
-            logger.warning(f"路径不以 /c 结尾，跳过: {url[:100]}")
-            continue
-        if "emag.ro" not in parsed.netloc and "emag.ro" not in url:
-            logger.warning(f"非 eMAG 域名，跳过: {url[:80]}")
+    for url in urls:
+        if not _is_valid_emag_url(url):
+            logger.warning(f"非法 URL（域名/路径验证失败），跳过: {url[:100]}")
             continue
         path = _extract_category_path(url)
         if not path:
             logger.warning(f"无法解析类目路径，跳过: {url[:100]}")
             continue
-        result.append(CategoryInfo(url=url, category_path=path, index=idx + len(result)))
+        result.append(CategoryInfo(url=url, category_path=path, index=len(result) + 1))
     return result
 
 
-def main():
+EXIT_SUCCESS = 0
+EXIT_FAILURE = 1
+EXIT_BAD_ARGS = 2
+EXIT_PARTIAL = 3
+
+
+def main() -> int:
     args = parse_args()
 
-    # 拒绝负数页数，非零退出码
     if args.pages < 0:
         sys.exit("错误: --pages 不能为负数")
     if args.category_pages < 0:
@@ -198,11 +239,10 @@ def main():
 
     if args.debug:
         print_debug_banner(args, effective_pages)
-        return
+        return EXIT_SUCCESS
 
     if args.export_only:
-        do_export_only()
-        return
+        return do_export_only() or EXIT_SUCCESS
 
     if args.reset:
         reset_checkpoints()
@@ -215,10 +255,10 @@ def main():
             categories = _build_category_infos(raw_urls)
             if not categories:
                 logger.error("自动发现未找到有效类目")
-                return
+                return EXIT_FAILURE
         except Exception as e:
             logger.error(f"类目自动发现失败: {e}")
-            return
+            return EXIT_FAILURE
         if effective_pages <= 0:
             effective_pages = getattr(config, 'MAX_PAGES_PER_CATEGORY', 10)
             logger.info(f"自动发现模式: 每类目默认 {effective_pages} 页")
@@ -227,13 +267,11 @@ def main():
             categories = load_categories()
         except (FileNotFoundError, ValueError) as e:
             logger.error(str(e))
-            return
+            return EXIT_FAILURE
 
     # ---- 图片开关 ----
     if args.no_images:
         config.DOWNLOAD_IMAGES = False
-
-    # ---- list-only 默认不下载图片 ----
     list_img = args.download_list_images and config.DOWNLOAD_IMAGES
     if args.list_only and not args.download_list_images:
         config.DOWNLOAD_IMAGES = False
@@ -241,7 +279,8 @@ def main():
     # ---- 统计 ----
     stats = {
         "total_categories": len(categories),
-        "categories_done": 0, "categories_failed": 0,
+        "categories_done": 0, "categories_partial": 0, "categories_failed": 0,
+        "failed_pages": 0,
         "page_limit": effective_pages if effective_pages > 0 else "ALL",
         "pages_crawled": 0, "total_products": 0,
         "dedup_skipped": 0,
@@ -263,18 +302,28 @@ def main():
         try:
             cp, cs = crawl_list_pages(start_url=cat.url, category_path=cat.category_path,
                                        max_pages=effective_pages)
+            failed = cs.get("failed_pages", 0)
+            complete = cs.get("complete", True)
+
             if cp:
                 all_products.extend(cp)
-                stats["categories_done"] += 1
                 stats["pages_crawled"] += cs.get("pages_crawled", 0)
-                logger.info(f"  → {len(cp)} products, {cs.get('pages_crawled',0)} pages")
+                stats["failed_pages"] += failed
+                if complete:
+                    stats["categories_done"] += 1
+                else:
+                    stats["categories_partial"] += 1
+                tag = "" if complete else f" [部分: {failed}页失败]"
+                logger.info(f"  → {len(cp)} products, {cs.get('pages_crawled',0)} pages{tag}")
             else:
                 stats["categories_failed"] += 1
+                if failed > 0:
+                    logger.warning(f"  类目失败: {failed} 页HTTP错误")
         except Exception as e:
             logger.error(f"  类目异常: {e}")
             stats["categories_failed"] += 1
 
-    # ---- 跨类目 PNK 去重 ----
+    # ---- 跨类目去重 ----
     before_dedup = len(all_products)
     all_products, dedup_skipped = dedup_products(all_products)
     stats["dedup_skipped"] = dedup_skipped
@@ -282,9 +331,17 @@ def main():
     if dedup_skipped:
         logger.info(f"跨类目去重: {before_dedup} → {len(all_products)} (跳过 {dedup_skipped})")
 
+    # 判断退出码
+    exit_code = EXIT_SUCCESS
     if not all_products:
         logger.error("所有类目均无数据，退出")
-        return
+        exit_code = EXIT_FAILURE
+    elif stats["categories_failed"] > 0 or stats["categories_partial"] > 0:
+        exit_code = EXIT_PARTIAL
+
+    if not all_products:
+        print_summary(stats, start_time)
+        return exit_code
 
     # ---- list-only ----
     if args.list_only:
@@ -292,7 +349,7 @@ def main():
             download_all_images(all_products, __import__('scrapling.fetchers', fromlist=['Fetcher']).Fetcher)
         export_all(all_products)
         print_summary(stats, start_time)
-        return
+        return exit_code
 
     # ================================================================
     # Phase 2: 详情页
@@ -301,7 +358,8 @@ def main():
     cp_detail = load_checkpoint(config.CHECKPOINT_DETAIL_PAGES)
     if cp_detail:
         stats["success_detail"] = len(cp_detail.get("completed_pnks", []))
-    stats["fail_detail"] = stats["total_products"] - stats["success_detail"]
+    detail_fail = stats["total_products"] - stats["success_detail"]
+    stats["fail_detail"] = max(0, detail_fail)
 
     # ================================================================
     # Phase 3: 图片 → 导出
@@ -310,7 +368,8 @@ def main():
         download_all_images(all_products, __import__('scrapling.fetchers', fromlist=['Fetcher']).Fetcher)
     export_all(all_products)
     print_summary(stats, start_time)
+    return exit_code
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
