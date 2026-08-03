@@ -318,22 +318,32 @@ def parse_detail_page(response: ScraplingResponse, product_url: str) -> dict:
 
 
 def _extract_jsonld(response: ScraplingResponse) -> dict | None:
-    """提取 JSON-LD Product 数据"""
+    """提取 JSON-LD Product 数据（兼容多种 script 标签格式）"""
     scripts = re.findall(
-        r'<script type="application/ld\+json">(.*?)</script>',
+        r'<script[^>]*type\s*=\s*["\']application/ld\+json["\'][^>]*>(.*?)</script>',
         response.html_content,
-        re.DOTALL,
+        re.DOTALL | re.IGNORECASE,
     )
     for s in scripts:
         try:
             data = json.loads(s)
-            # 可能是单个对象或数组
-            items = data if isinstance(data, list) else [data]
-            for item in items:
-                if isinstance(item, dict) and item.get("@type") == "Product":
-                    return item
         except (json.JSONDecodeError, TypeError):
             continue
+
+        # 搜索 Product — 支持对象、数组、@graph
+        candidates = []
+        if isinstance(data, dict):
+            candidates.append(data)
+            # @graph 结构
+            if "@graph" in data and isinstance(data["@graph"], list):
+                candidates.extend(data["@graph"])
+        elif isinstance(data, list):
+            candidates.extend(data)
+
+        for item in candidates:
+            if isinstance(item, dict) and item.get("@type") == "Product":
+                return item
+
     return None
 
 

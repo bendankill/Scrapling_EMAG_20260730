@@ -43,11 +43,16 @@ def fetch_with_retry(
     for attempt in range(max_retries):
         try:
             ua = get_random_ua()
+            # 合并调用者 headers 与轮换 UA（不覆盖已设置的 User-Agent）
+            merged_headers = kwargs.pop("headers", {}) if "headers" in kwargs else {}
+            if "User-Agent" not in merged_headers:
+                merged_headers["User-Agent"] = ua
             resp = Fetcher.get(
                 url,
                 impersonate="chrome",
                 stealthy_headers=True,
                 timeout=30,
+                headers=merged_headers,
                 **kwargs,
             )
 
@@ -64,9 +69,9 @@ def fetch_with_retry(
                 time.sleep(wait)
                 continue
 
-            # 其他状态码视为成功但不理想
-            logger.warning(f"HTTP {resp.status}: {url[:80]}")
-            return resp
+            # 非200且不在重试列表的状态码 → 记入失败
+            logger.warning(f"HTTP {resp.status} (non-retryable): {url[:80]}")
+            return None
 
         except Exception as e:
             wait = config.RETRY_BACKOFF * (attempt + 1)

@@ -125,21 +125,57 @@ def load_checkpoint(filepath: str) -> Any:
 # 价格解析
 # ============================================================
 def parse_price(text: str) -> float | None:
-    """解析罗马尼亚价格字符串 -> float
-    示例: '45,99 Lei', 'PRP: 69,99 Lei', '45,99'
+    """解析罗马尼亚/欧洲价格字符串 -> float
+
+    支持: '45,99 Lei', '1.234,56 Lei', '1 234,56 Lei', '1234,56 Lei'
+          美式: '1,234.56'
+    返回: float 或 None
     """
     if not text:
         return None
-    # 移除非数字和逗号/句点
+    # 移除空格（千位分隔）和所有非数字/逗号/句点字符
     cleaned = re.sub(r"[^\d,.]", "", text)
-    # 如果同时有逗号和句点（如 1,234.56）
-    if "." in cleaned and "," in cleaned:
-        cleaned = cleaned.replace(",", "")
-    elif "," in cleaned:
-        # 罗马尼亚格式: 45,99 -> 45.99
-        cleaned = cleaned.replace(",", ".")
+    if not cleaned:
+        return None
+
+    # 判断小数分隔符：同时存在逗号句点时，最后出现的为小数分隔符
+    has_comma = "," in cleaned
+    has_dot = "." in cleaned
+    last_comma = cleaned.rfind(",")
+    last_dot = cleaned.rfind(".")
+
+    if has_comma and has_dot:
+        # 两者都在 → 最后出现的是小数分隔符（通用规则）
+        if last_comma > last_dot:
+            # 罗马尼亚: 1.234,56
+            decimal_pos = last_comma
+            thousands_char = "."
+        else:
+            # 美式: 1,234.56
+            decimal_pos = last_dot
+            thousands_char = ","
+        integer_part = cleaned[:decimal_pos].replace(thousands_char, "")
+        decimal_part = cleaned[decimal_pos + 1:]
+        result = f"{integer_part}.{decimal_part}" if integer_part else f"0.{decimal_part}"
+    elif has_comma:
+        # 只有逗号 → 罗马尼亚格式: 45,99（小数）或 1234（千位）
+        # 逗号后2位 → 小数；逗号后3位 → 千位
+        if len(cleaned) - last_comma - 1 <= 2:
+            result = cleaned.replace(",", ".")  # 45,99 → 45.99
+        else:
+            result = cleaned.replace(",", "")   # 1,234 → 1234
+    elif has_dot:
+        # 只有句点 → 1.234（千位）或 1.99（小数）
+        after_dot = len(cleaned) - last_dot - 1
+        if after_dot > 2:
+            result = cleaned.replace(".", "")  # 千位
+        else:
+            result = cleaned  # 小数
+    else:
+        result = cleaned  # 纯数字
+
     try:
-        return float(cleaned)
+        return float(result)
     except ValueError:
         return None
 
