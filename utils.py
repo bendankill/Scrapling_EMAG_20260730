@@ -215,3 +215,20 @@ def build_detail_url(pnk: str, slug: str = "product") -> str:
 def is_valid_product_url(url: str) -> bool:
     """检查是否为有效产品 URL"""
     return "/pd/" in url and url.startswith("http")
+
+
+def is_valid_emag_url(url: str) -> bool:
+    """严格验证是否为合法的 eMAG 商品列表页 URL（共用）"""
+    from urllib.parse import urlparse
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    host = (p.hostname or "").lower()
+    if host != "emag.ro" and not host.endswith(".emag.ro"):
+        return False
+    if not p.path.rstrip("/").endswith("/c"):
+        return False
+    return True

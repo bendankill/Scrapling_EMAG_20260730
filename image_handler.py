@@ -217,7 +217,7 @@ class ImageDownloader:
         # 更新产品的 image_path 和 image_count
         for product in products:
             pnk = product.get("pnk", "")
-            paths = _find_local_images(pnk)
+            paths = self._find_local_images(pnk)
             product["image_path"] = paths[0] if paths else ""
             product["image_count"] = len(paths)
 
@@ -240,10 +240,23 @@ class ImageDownloader:
         local_name = f"{pnk}_{index:03d}{ext}"
         local_path = os.path.join(config.IMAGES_DIR, local_name)
 
-        # 已存在且非空 → 跳过
+        # 已存在文件 → 验证签名，无效则删除后重新下载
         if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-            self._stats["skipped"] += 1
-            return local_path
+            try:
+                with open(local_path, "rb") as f:
+                    header = f.read(16)
+            except Exception:
+                header = b""
+            if _is_valid_image(header):
+                self._stats["skipped"] += 1
+                return local_path
+            else:
+                logger.warning(f"  [{pnk}] #{index:03d} 已有文件非有效图片，删除后重试")
+                try:
+                    os.remove(local_path)
+                except Exception:
+                    pass
+                # 继续下载流程
 
         # 下载 + 验证
         try:
@@ -274,6 +287,21 @@ class ImageDownloader:
             logger.warning(f"  [{pnk}] #{index:03d} 下载失败: {e} — {url[:80]}")
             return ""
 
+    def _find_local_images(self, pnk: str) -> list[str]:
+        """查找本地有效商品图片（仅返回通过签名验证的图片）"""
+        import glob as gb
+        pattern = os.path.join(config.IMAGES_DIR, f"{pnk}_*")
+        files = sorted(gb.glob(pattern))
+        valid = []
+        for fp in files:
+            try:
+                with open(fp, "rb") as f:
+                    if _is_valid_image(f.read(16)):
+                        valid.append(fp)
+            except Exception:
+                continue
+        return valid
+
 
 def _is_valid_image(data: bytes) -> bool:
     """通过文件签名验证是否为有效图片（JPEG/PNG/GIF/WebP）"""
@@ -295,15 +323,6 @@ def _is_valid_image(data: bytes) -> bool:
     if data[:1] == b'<' or data[:1] == b'{':
         return False
     return False
-
-
-# ---- ImageDownloader 辅助方法 ----
-
-def _find_local_images(pnk: str) -> list[str]:
-    """查找本地已下载的商品图片（模块级函数）"""
-    import glob as gb
-    pattern = os.path.join(config.IMAGES_DIR, f"{pnk}_*")
-    return sorted(gb.glob(pattern))
 
 
 # ============================================================

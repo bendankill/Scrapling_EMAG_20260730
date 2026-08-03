@@ -90,23 +90,7 @@ def _normalize_url_key(url: str) -> str:
     return f"{p.netloc}{path}"
 
 
-def _is_valid_emag_url(url: str) -> bool:
-    """严格验证是否为合法的 eMAG 商品列表页 URL"""
-    from urllib.parse import urlparse
-    try:
-        p = urlparse(url)
-    except Exception:
-        return False
-    if p.scheme not in ("http", "https"):
-        return False
-    host = (p.hostname or "").lower()
-    # 只允许 emag.ro 或 *.emag.ro
-    if host != "emag.ro" and not host.endswith(".emag.ro"):
-        return False
-    # 必须 /c 结尾（商品列表页）
-    if not p.path.rstrip("/").endswith("/c"):
-        return False
-    return True
+from utils import is_valid_emag_url as _is_valid_emag_url
 
 
 def dedup_products(products: list[dict]) -> tuple[list[dict], int]:
@@ -224,9 +208,11 @@ def main() -> int:
     args = parse_args()
 
     if args.pages < 0:
-        sys.exit("错误: --pages 不能为负数")
+        print("错误: --pages 不能为负数", file=sys.stderr)
+        return EXIT_BAD_ARGS
     if args.category_pages < 0:
-        sys.exit("错误: --category-pages 不能为负数")
+        print("错误: --category-pages 不能为负数", file=sys.stderr)
+        return EXIT_BAD_ARGS
 
     effective_pages = args.category_pages if args.category_pages > 0 else args.pages
     start_time = time.time()
@@ -354,12 +340,14 @@ def main() -> int:
     # ================================================================
     # Phase 2: 详情页
     # ================================================================
-    all_products = crawl_detail_pages(all_products)
-    cp_detail = load_checkpoint(config.CHECKPOINT_DETAIL_PAGES)
-    if cp_detail:
-        stats["success_detail"] = len(cp_detail.get("completed_pnks", []))
-    detail_fail = stats["total_products"] - stats["success_detail"]
-    stats["fail_detail"] = max(0, detail_fail)
+    all_products, detail_stats = crawl_detail_pages(all_products)
+    stats["success_detail"] = detail_stats.get("success", 0)
+    stats["fail_detail"] = detail_stats.get("failed", 0)
+    if not detail_stats.get("complete", True):
+        if stats["fail_detail"] == detail_stats.get("total_products", 0):
+            exit_code = EXIT_FAILURE  # 全部详情失败
+        elif exit_code < EXIT_PARTIAL:
+            exit_code = EXIT_PARTIAL  # 部分详情失败
 
     # ================================================================
     # Phase 3: 图片 → 导出

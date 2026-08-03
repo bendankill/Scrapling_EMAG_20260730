@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+### Fixed (Round 4)
+
+- **详情统计**: crawl_detail_pages 返回 (products, detail_stats)，成功/失败与本次PNK交集
+- **详情验证**: _is_detail_valid 检查空HTML/反爬/无产品数据
+- **首页失败统计**: 返回完整failed_pages/complete结构
+- **退出码**: --pages -1 → 2(BAD_ARGS), 全部详情失败→1, 部分失败→3
+- **图片验证**: 已有文件通过签名验证，无效自动删除重建
+- **_find_local_images**: 恢复为ImageDownloader实例方法，过滤无效图片
+- **URL验证统一**: is_valid_emag_url 放 utils.py, main/category_loader 共用
+- **类目编号**: len(result)+1 连续编号，过滤后不跳跃
+
 ### Fixed (Round 3)
 
 - **图片下载崩溃**: _find_local_images 从嵌套函数恢复为模块级函数

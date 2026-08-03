@@ -25,6 +25,24 @@ from utils import (
 from parser import parse_list_page, parse_list_page_meta, parse_detail_page
 
 
+def _is_detail_valid(detail: dict, resp=None) -> bool:
+    """验证详情解析结果是否包含有效产品数据"""
+    if not detail or not isinstance(detail, dict):
+        return False
+    # 检查响应是否可能是反爬页面
+    if resp and hasattr(resp, 'html_content'):
+        html = resp.html_content
+        if len(html) < 5000 or 'captcha' in html.lower():
+            return False
+    # 必须有产品名称或品牌或规格等实质内容
+    has_content = (
+        detail.get("ld_name") or detail.get("brand")
+        or detail.get("manufacturer") or detail.get("description")
+        or detail.get("ld_sku")
+    )
+    return bool(has_content)
+
+
 # ============================================================
 # HTTP 请求封装（带重试）
 # ============================================================
@@ -125,7 +143,13 @@ def crawl_list_pages(
     first_page = fetch_with_retry(start_url or build_list_url(1, category_path))
     if not first_page:
         logger.error("无法获取首页，退出")
-        return [], {"error": "首页获取失败"}
+        return [], {
+            "category_path": category_path,
+            "website_total_pages": 0, "total_pages": 0,
+            "total_found": 0, "pages_crawled": 0,
+            "failed_pages": 1, "complete": False,
+            "error": "首页获取失败：无响应",
+        }
 
     # ---- 保存首页 HTML 用于调试 ----
     try:
@@ -300,36 +324,49 @@ def crawl_list_pages(
 def crawl_detail_pages(
     products: list[dict],
     progress_callback: Callable = None,
-) -> list[dict]:
+) -> tuple[list[dict], dict]:
     """
     为每个商品爬取详情页，扩充数据
 
-    返回: 合并详情数据后的产品列表
+    返回: (products, detail_stats)
     """
+    empty_stats = {
+        "total_products": len(products), "to_fetch": 0,
+        "from_checkpoint": 0, "success": 0, "failed": 0,
+        "complete": True,
+    }
     if not config.FETCH_DETAILS:
         logger.info("详情页爬取已禁用")
-        return products
+        return products, empty_stats
 
     if not products:
-        return products
+        return products, empty_stats
 
     # 检查断点
     checkpoint = load_checkpoint(config.CHECKPOINT_DETAIL_PAGES)
     completed_pnks = set(checkpoint.get("completed_pnks", []) if checkpoint else [])
     detail_data_map = checkpoint.get("detail_data", {}) if checkpoint else {}
 
-    # 先合并已有详情数据
+    # 先合并已有详情数据，并统计从断点恢复的商品数
+    this_run_pnks = {p.get("pnk", "") for p in products if p.get("pnk")}
+    restored_from_checkpoint = 0
     for p in products:
         pnk = p.get("pnk", "")
-        if pnk in detail_data_map:
+        if pnk in detail_data_map and pnk in this_run_pnks:
             p.update(detail_data_map[pnk])
+            restored_from_checkpoint += 1
 
-    # 过滤需要抓取详情的
+    # 过滤需要抓取详情的（且 PNK 在本次商品集合中）
     to_fetch = [p for p in products if p.get("pnk") and p.get("pnk") not in completed_pnks]
 
     if not to_fetch:
         logger.info("所有详情页已完成")
-        return products
+        return products, {
+            "total_products": len(products), "to_fetch": 0,
+            "from_checkpoint": restored_from_checkpoint,
+            "success": restored_from_checkpoint, "failed": 0,
+            "complete": True,
+        }
 
     total = len(to_fetch)
     logger.info(f"开始爬取 {total} 个商品详情页（并发 {config.CONCURRENT_DETAIL}）...")
@@ -366,6 +403,15 @@ def crawl_detail_pages(
 
         try:
             detail = parse_detail_page(resp, url)
+
+            # 验证详情有效性：非空 + 有实质性产品数据
+            if not _is_detail_valid(detail, resp):
+                with lock:
+                    done_count += 1
+                    fail_count += 1
+                logger.warning(f"详情无效 [{pnk}]: 空HTML/反爬/无产品数据")
+                return product
+
             product.update(detail)
 
             with lock:
@@ -418,9 +464,23 @@ def crawl_detail_pages(
         "detail_data": detail_data_map,
     })
 
+    # 统计：与本次商品PNK集合取交集
+    this_run_completed = completed_pnks & this_run_pnks
+    this_run_success = len(this_run_completed)
+    this_run_failed = len(this_run_pnks) - this_run_success
+
+    detail_stats = {
+        "total_products": len(products),
+        "to_fetch": len(to_fetch),
+        "from_checkpoint": restored_from_checkpoint,
+        "success": this_run_success,
+        "failed": max(0, this_run_failed),
+        "complete": this_run_failed == 0 and len(products) > 0,
+    }
+
     logger.info(
-        f"详情页爬取完成: {done_count} 个 "
-        f"(成功 {success_count}, 失败 {fail_count})"
+        f"详情页爬取完成: {this_run_success} 成功, "
+        f"{this_run_failed} 失败, 断点恢复 {restored_from_checkpoint}"
     )
 
-    return products
+    return products, detail_stats

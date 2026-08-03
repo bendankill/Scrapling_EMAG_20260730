@@ -72,37 +72,18 @@ def load_categories(filepath: str = None) -> list[CategoryInfo]:
             f"请添加至少一个类目 URL"
         )
 
-    # ---- 构建 CategoryInfo ----
+    # ---- 构建 CategoryInfo（只计算有效类目编号） ----
     categories = []
-    for idx, url in enumerate(urls, 1):
-        # 严格域名验证
-        from urllib.parse import urlparse as _up
-        try:
-            p = _up(url)
-            host = (p.hostname or "").lower()
-            if host != "emag.ro" and not host.endswith(".emag.ro"):
-                logger.warning(f"非 eMAG 域名（{host}），跳过: {url[:80]}")
-                continue
-            if p.scheme not in ("http", "https"):
-                logger.warning(f"非法 scheme，跳过: {url[:80]}")
-                continue
-        except Exception:
-            logger.warning(f"URL 解析失败，跳过: {url[:80]}")
-            continue
-        # 验证路径格式（商品列表页必须以 /c 结尾）
-        parsed_path = _up(url).path.rstrip("/")
-        if not parsed_path.endswith("/c"):
-            logger.warning(
-                f"URL 路径不以 /c 结尾（非商品列表页），跳过: {url[:80]}\n"
-                f"  当前路径: {parsed_path}\n"
-                f"  提示: 部门页（/d）和品牌页不受支持，请使用 /c 结尾的商品列表页 URL"
-            )
+    from utils import is_valid_emag_url as _iv
+    for url in urls:
+        if not _iv(url):
+            logger.warning(f"URL 验证失败，跳过: {url[:80]}")
             continue
         cat_path = _extract_category_path(url)
         if not cat_path:
             logger.warning(f"无法从 URL 提取类目路径，跳过: {url}")
             continue
-        categories.append(CategoryInfo(url=url, category_path=cat_path, index=idx))
+        categories.append(CategoryInfo(url=url, category_path=cat_path, index=len(categories) + 1))
 
     if not categories:
         raise ValueError("没有有效的类目 URL（需 emag.ro 域名 + /c 商品列表页路径）")
