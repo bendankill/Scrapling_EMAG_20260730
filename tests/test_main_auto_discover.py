@@ -17,6 +17,7 @@ def test_strings_to_category_info():
 def test_invalid_url_filtered():
     urls = ["https://www.emag.ro/invalid", "https://www.emag.ro/mouse/c"]
     cats = _build_category_infos(urls)
+    # /invalid 不以 /c 结尾 → 被过滤；只保留 mouse/c
     assert len(cats) == 1
     assert cats[0].category_path == "/mouse"
 

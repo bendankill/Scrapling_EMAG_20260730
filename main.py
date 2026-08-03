@@ -159,14 +159,22 @@ def print_summary(stats: dict, start_time: float):
 
 
 def _build_category_infos(urls: list[str]) -> list[CategoryInfo]:
-    """将 URL 字符串列表转为 CategoryInfo 列表"""
+    """将 URL 字符串列表转为 CategoryInfo 列表，过滤非商品列表页"""
+    from urllib.parse import urlparse
     result = []
     for idx, url in enumerate(urls, 1):
+        parsed = urlparse(url)
+        if not parsed.path.rstrip("/").endswith("/c"):
+            logger.warning(f"路径不以 /c 结尾，跳过: {url[:100]}")
+            continue
+        if "emag.ro" not in parsed.netloc and "emag.ro" not in url:
+            logger.warning(f"非 eMAG 域名，跳过: {url[:80]}")
+            continue
         path = _extract_category_path(url)
         if not path:
             logger.warning(f"无法解析类目路径，跳过: {url[:100]}")
             continue
-        result.append(CategoryInfo(url=url, category_path=path, index=idx))
+        result.append(CategoryInfo(url=url, category_path=path, index=idx + len(result)))
     return result
 
 
