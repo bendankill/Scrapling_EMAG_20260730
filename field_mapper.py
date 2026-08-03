@@ -175,25 +175,12 @@ def _build_spec_detail(product: dict) -> str:
     }
 
     parts = []
-    seen_labels = set()
-    # 优先遍历 spec_ro_keys 以保证稳定顺序
+    # 只从原始罗马尼亚语 spec_ 字段构建，保证每个规格只出现一次
     for ro_key in sorted(spec_ro_keys):
-        if ro_key in seen_labels:
-            continue
-        seen_labels.add(ro_key)
         val = product.get(ro_key, "")
         if val and len(str(val)) < 200:
             label = ro_key.replace("spec_", "", 1)
             parts.append(f"{label}:{val}")
-
-    # 补充英文规范化 key
-    for k, v in sorted(product.items()):
-        if k in seen_labels or k.startswith("spec_") or k.startswith("_"):
-            continue
-        if k in excluded or k in FIELD_MAP:
-            continue
-        if k in known_spec_keys and v and len(str(v)) < 200:
-            parts.append(f"{k}:{v}")
 
     return " | ".join(parts) if parts else ""
 
@@ -234,7 +221,8 @@ def normalize_product(product: dict) -> dict:
         if k.startswith("_gallery"):
             continue  # 内部列表
         if k.startswith("spec_"):
-            continue  # 罗马尼亚语规格
+            out[k] = v  # 保留原始罗马尼亚语规格字段
+            continue
         if k.startswith("ld_prop_"):
             continue
         if k in ("category_trail", "all_images"):

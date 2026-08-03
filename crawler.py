@@ -40,20 +40,26 @@ def fetch_with_retry(
     """
     max_retries = max_retries or config.MAX_RETRIES
 
+    # 保存原始 headers（不修改调用者字典）
+    original_headers = dict(kwargs.get("headers", {}))
     for attempt in range(max_retries):
         try:
             ua = get_random_ua()
-            # 合并调用者 headers 与轮换 UA（不覆盖已设置的 User-Agent）
-            merged_headers = kwargs.pop("headers", {}) if "headers" in kwargs else {}
-            if "User-Agent" not in merged_headers:
-                merged_headers["User-Agent"] = ua
+            # 每次重试新建 headers 副本
+            attempt_headers = dict(original_headers)
+            # 大小写不敏感检查 User-Agent
+            has_ua = any(k.lower() == "user-agent" for k in attempt_headers)
+            if not has_ua:
+                attempt_headers["User-Agent"] = ua
+            # 从 kwargs 移除 headers 避免重复传递
+            call_kwargs = {k: v for k, v in kwargs.items() if k != "headers"}
             resp = Fetcher.get(
                 url,
                 impersonate="chrome",
                 stealthy_headers=True,
                 timeout=30,
-                headers=merged_headers,
-                **kwargs,
+                headers=attempt_headers,
+                **call_kwargs,
             )
 
             if resp.status == 200:
@@ -181,8 +187,13 @@ def crawl_list_pages(
     if not pages_to_fetch:
         logger.info("所有列表页已完成")
         return all_products, {
+            "category_path": category_path,
+            "website_total_pages": website_total_pages,
             "total_pages": total_pages,
             "total_found": len(all_products),
+            "pages_crawled": len(completed_pages),
+            "failed_pages": 0,
+            "complete": True,
         }
 
     logger.info(f"还需爬取 {len(pages_to_fetch)} 页...")
@@ -191,15 +202,29 @@ def crawl_list_pages(
     page_lock = threading.Lock()
     pages_done = 0
 
-    def fetch_single_page(page_num: int) -> tuple[int, list[dict]]:
-        nonlocal pages_done
+    failed_pages = 0
+
+    def fetch_single_page(page_num: int) -> tuple[int, list[dict], bool, int]:
+        """
+        返回: (page_num, products, http_ok, status_code)
+          http_ok=True  → HTTP 200 正常页面
+          http_ok=False → 请求失败（WAF/超时/403等），不能视为空页
+        """
+        nonlocal pages_done, failed_pages
         random_sleep(config.MIN_DELAY, config.MAX_DELAY, reason=f"翻页到 {page_num}")
 
         url = build_list_url(page_num, category_path)
         resp = fetch_with_retry(url)
         if not resp:
-            logger.error(f"第 {page_num} 页获取失败")
-            return page_num, []
+            logger.error(f"Page {page_num} HTTP 请求失败（无响应）")
+            failed_pages += 1
+            return page_num, [], False, 0
+
+        status = resp.status
+        if status != 200:
+            logger.warning(f"Page {page_num} HTTP {status} — 请求失败，非最后一页")
+            failed_pages += 1
+            return page_num, [], False, status
 
         products = parse_list_page(resp)
         all_products.extend(products)
@@ -220,16 +245,18 @@ def crawl_list_pages(
         if progress_callback:
             progress_callback(page_num, total_pages, len(all_products))
 
-        return page_num, products
+        return page_num, products, True, 200
 
-    # 顺序执行（列表页不适合并发太多，容易被封）
+    # 顺序执行
     for page_num in pages_to_fetch:
-        _, products = fetch_single_page(page_num)
-        # all_products 已在 fetch_single_page 内部 extend
+        _, products, http_ok, status_code = fetch_single_page(page_num)
 
-        # 当前页无商品 → 已到最后一页，停止翻页
+        if not http_ok:
+            continue  # HTTP 失败，跳过，不视为最后一页
+
+        # 仅 HTTP 200 + 正常解析 + 0 商品 → 真正空页
         if not products:
-            logger.info(f"第 {page_num} 页无商品，已到最后一页，提前停止翻页")
+            logger.info(f"Page {page_num} 正常空页（HTTP 200），已到最后一页，停止翻页")
             break
 
         # 每5页保存一次完整断点
@@ -255,6 +282,8 @@ def crawl_list_pages(
         "total_pages": total_pages,
         "total_found": len(all_products),
         "pages_crawled": len(completed_pages),
+        "failed_pages": failed_pages,
+        "complete": failed_pages == 0,
     }
 
     logger.info(

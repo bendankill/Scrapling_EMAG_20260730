@@ -75,6 +75,19 @@ def load_categories(filepath: str = None) -> list[CategoryInfo]:
     # ---- 构建 CategoryInfo ----
     categories = []
     for idx, url in enumerate(urls, 1):
+        # 验证域名
+        if "emag.ro" not in url:
+            logger.warning(f"非 eMAG 域名，跳过: {url[:80]}")
+            continue
+        # 验证路径格式（商品列表页必须以 /c 结尾）
+        parsed_path = urlparse(url).path.rstrip("/")
+        if not parsed_path.endswith("/c"):
+            logger.warning(
+                f"URL 路径不以 /c 结尾（非商品列表页），跳过: {url[:80]}\n"
+                f"  当前路径: {parsed_path}\n"
+                f"  提示: 部门页（/d）和品牌页不受支持，请使用 /c 结尾的商品列表页 URL"
+            )
+            continue
         cat_path = _extract_category_path(url)
         if not cat_path:
             logger.warning(f"无法从 URL 提取类目路径，跳过: {url}")
@@ -82,7 +95,7 @@ def load_categories(filepath: str = None) -> list[CategoryInfo]:
         categories.append(CategoryInfo(url=url, category_path=cat_path, index=idx))
 
     if not categories:
-        raise ValueError("所有 URL 均无法解析类目路径，请检查格式")
+        raise ValueError("没有有效的类目 URL（需 emag.ro 域名 + /c 商品列表页路径）")
 
     logger.info(f"已加载 {len(categories)} 个类目")
     for cat in categories:

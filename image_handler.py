@@ -245,7 +245,7 @@ class ImageDownloader:
             self._stats["skipped"] += 1
             return local_path
 
-        # 下载
+        # 下载 + 验证
         try:
             resp = self.fetcher.get(
                 url,
@@ -253,13 +253,48 @@ class ImageDownloader:
                 stealthy_headers=True,
                 timeout=20,
             )
+            # 验证: HTTP 200 + 非空 + 图片内容
+            if resp.status != 200:
+                logger.warning(f"  [{pnk}] #{index:03d} HTTP {resp.status}, 跳过")
+                return ""
+            body = resp.body if hasattr(resp, 'body') else b""
+            if not body or len(body) < 64:
+                logger.warning(f"  [{pnk}] #{index:03d} 响应体为空/过小({len(body)}B), 跳过")
+                return ""
+            if not _is_valid_image(body):
+                content_type = resp.headers.get("Content-Type", "") if hasattr(resp, 'headers') else ""
+                logger.warning(f"  [{pnk}] #{index:03d} 非图片内容(Content-Type={content_type}), 跳过")
+                return ""
+
             with open(local_path, "wb") as f:
-                f.write(resp.body)
-            logger.debug(f"  [{pnk}] #{index:03d} 已下载 ({len(resp.body)} bytes)")
+                f.write(body)
+            logger.debug(f"  [{pnk}] #{index:03d} 已下载 ({len(body)} bytes)")
             return local_path
         except Exception as e:
             logger.warning(f"  [{pnk}] #{index:03d} 下载失败: {e} — {url[:80]}")
             return ""
+
+
+def _is_valid_image(data: bytes) -> bool:
+    """通过文件签名验证是否为有效图片（JPEG/PNG/GIF/WebP）"""
+    if len(data) < 4:
+        return False
+    # JPEG: FF D8 FF
+    if data[:3] == b'\xFF\xD8\xFF':
+        return True
+    # PNG: 89 50 4E 47
+    if data[:4] == b'\x89PNG':
+        return True
+    # GIF: GIF87a or GIF89a
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return True
+    # WebP: RIFF ... WEBP
+    if data[:4] == b'RIFF' and len(data) >= 12 and data[8:12] == b'WEBP':
+        return True
+    # 拒绝 HTML/JSON/Captcha
+    if data[:1] == b'<' or data[:1] == b'{':
+        return False
+    return False
 
     def _find_local_images(self, pnk: str) -> list[str]:
         """查找本地已下载的该商品图片"""
