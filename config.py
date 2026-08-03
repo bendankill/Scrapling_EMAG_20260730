@@ -58,6 +58,12 @@ CONCURRENT_LIST = 2     # 列表页并发
 CONCURRENT_DETAIL = 4   # 详情页并发
 CONCURRENT_IMAGE = 8    # 图片下载并发
 
+# v1.0.5 可扩展并发参数
+CATEGORY_WORKERS = 4    # 并发类目数（默认 4）
+PAGE_WORKERS = 4        # 每类目并发页数（默认 4）
+MAX_IN_FLIGHT = 16      # 全局最大飞行中请求数
+MAX_PAGES_PER_CATEGORY = 10  # 自动发现模式默认页数
+
 # 请求间隔（秒）- 随机在此范围内
 MIN_DELAY = 2.0
 MAX_DELAY = 5.0

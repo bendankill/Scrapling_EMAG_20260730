@@ -1,7 +1,8 @@
 """域名和URL安全验证测试"""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from main import _is_valid_emag_url, _build_category_infos
+from utils import is_valid_emag_url as _is_valid_emag_url
+from main import _build_category_infos
 
 
 def test_valid_www_emag():

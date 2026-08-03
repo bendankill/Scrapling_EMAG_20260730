@@ -149,6 +149,8 @@ def crawl_list_pages(
     start_url: str = "",
     category_path: str = "",
     max_pages: int = 0,
+    page_workers: int = 4,
+    max_in_flight: int = 16,
     progress_callback: Callable = None,
 ) -> tuple[list[dict], dict]:
     """
@@ -158,6 +160,8 @@ def crawl_list_pages(
         start_url: 类目第一页完整 URL（可含 query params）
         category_path: 类目翻页路径，如 /mouse、/laptop-tablete
         max_pages: 最大爬取页数，0 表示全部
+        page_workers: 并发页数
+        max_in_flight: 全局飞行上限（本函数内未直接使用，由外层调度控制）
         progress_callback: 进度回调
 
     返回:
@@ -304,26 +308,30 @@ def crawl_list_pages(
 
         return page_num, products, True, 200
 
-    # 顺序执行
-    for page_num in pages_to_fetch:
-        _, products, http_ok, status_code = fetch_single_page(page_num)
+    # 并发执行（使用有上限的线程池）
+    workers = min(page_workers, len(pages_to_fetch))
+    logger.debug(f"翻页并发: {workers} workers for {len(pages_to_fetch)} pages")
 
-        if not http_ok:
-            continue  # HTTP 失败，跳过，不视为最后一页
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as page_executor:
+        future_map = {page_executor.submit(fetch_single_page, pn): pn for pn in pages_to_fetch}
+        for future in concurrent.futures.as_completed(future_map):
+            pn, products, http_ok, status_code = future.result()
+            if not http_ok:
+                continue
 
-        # 仅 HTTP 200 + 正常解析 + 0 商品 → 真正空页
-        if not products:
-            logger.info(f"Page {page_num} 正常空页（HTTP 200），已到最后一页，停止翻页")
-            break
+            # 检测空页 → 停止提交新任务（已有future会继续完成）
+            if not products:
+                logger.info(f"Page {pn} 正常空页（HTTP 200），已到最后一页")
 
-        # 每5页保存一次完整断点
-        if page_num % config.CHECKPOINT_INTERVAL == 0:
-            save_checkpoint(checkpoint_file, {
-                "completed_pages": list(completed_pages),
-                "products": all_products,
-                "total_pages": total_pages,
-                "total_products_count": total_products_count,
-            })
+            # 定期保存断点
+            with page_lock:
+                if pn % config.CHECKPOINT_INTERVAL == 0:
+                    save_checkpoint(checkpoint_file, {
+                        "completed_pages": list(completed_pages),
+                        "products": all_products,
+                        "total_pages": total_pages,
+                        "total_products_count": total_products_count,
+                    })
 
     # 最终保存
     save_checkpoint(checkpoint_file, {

@@ -1,6 +1,7 @@
 # eMAG 类目配置 - 每行一个 URL，支持注释
 # 增加新类目只需添加一行，无需修改代码
 
-https://www.emag.ro/hard-disk-uri-notebook/c?ref=search_menu_category
+https://www.emag.ro/power-bank-telefoane/c?ref=search_menu_category
+
 
 
