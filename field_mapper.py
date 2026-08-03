@@ -136,16 +136,65 @@ def split_category_trail(trail: str) -> dict[str, str]:
 
 
 def _build_spec_detail(product: dict) -> str:
-    """拼接英文规范化规格键值对为 规格详情"""
+    """拼接规格表字段为 规格详情。仅包含来自详情页规格表的真实规格。"""
+    # 收集所有 spec_ 前缀的原始罗马尼亚语键，它们标记了哪些是真实规格
+    spec_ro_keys = {k for k in product if k.startswith("spec_")}
+
+    # 同时收集已知英文规范化 spec key 的白名单
+    known_spec_keys = {
+        "type", "mouse_type", "interface", "sensor_type", "dpi", "resolution",
+        "button_count", "buttons", "weight_g", "dimensions", "dimensions_mm",
+        "cable_length", "cable_length_m", "color", "lighting", "rgb_lighting",
+        "battery_type", "battery_life", "sensor", "optical_sensor",
+        "frequency", "refresh_rate", "max_acceleration", "max_speed",
+        "button_lifespan", "connectivity", "compatibility", "os_compatibility",
+        "model", "warranty", "weight_without_cable", "power_source",
+        "switch_type", "material", "error_rate", "lift_off_distance",
+        "processor", "internal_memory", "profiles", "scroll_type",
+        "width_mm", "height_mm", "depth_mm", "package_content", "code",
+        "other_features", "sensor_types", "optical_resolution",
+        "response_time", "format",
+    }
+
+    # 排除的非规格字段
+    excluded = {
+        "brand", "manufacturer", "seller_name", "seller_rating",
+        "seller_positive_pct", "seller_type", "shipping_info",
+        "description", "all_images", "variants",
+        "product_id", "offer_id", "family_id", "pnk", "currency",
+        "is_promo", "discount_pct", "avg_rating", "review_count",
+        "star_pct", "stock_text", "is_in_stock", "delivery_estimate",
+        "installment", "is_genius", "is_top_favorite", "is_super_pret",
+        "image_url", "image_path", "image_count",
+        "ld_name", "ld_sku", "ld_mpn", "ld_product_id", "ld_price",
+        "ld_price_currency", "ld_availability", "ld_rating_value",
+        "ld_review_count", "ld_best_rating", "ld_worst_rating",
+        "ld_seller_name", "ld_category", "ld_keywords", "ld_description",
+        "ld_image", "ld_url", "ld_reviews_count_from_jsonld",
+        "ld_review_bodies", "warranty",
+    }
+
     parts = []
-    for k, v in product.items():
-        # 只取英文规范化 key，跳过罗马尼亚语原始键（spec_*）和内部字段
-        if k.startswith("spec_") or k.startswith("_"):
+    seen_labels = set()
+    # 优先遍历 spec_ro_keys 以保证稳定顺序
+    for ro_key in sorted(spec_ro_keys):
+        if ro_key in seen_labels:
             continue
-        if k in FIELD_MAP or k in ("all_images", "category_trail"):
+        seen_labels.add(ro_key)
+        val = product.get(ro_key, "")
+        if val and len(str(val)) < 200:
+            label = ro_key.replace("spec_", "", 1)
+            parts.append(f"{label}:{val}")
+
+    # 补充英文规范化 key
+    for k, v in sorted(product.items()):
+        if k in seen_labels or k.startswith("spec_") or k.startswith("_"):
             continue
-        if v and isinstance(v, str) and len(v) < 200:
+        if k in excluded or k in FIELD_MAP:
+            continue
+        if k in known_spec_keys and v and len(str(v)) < 200:
             parts.append(f"{k}:{v}")
+
     return " | ".join(parts) if parts else ""
 
 

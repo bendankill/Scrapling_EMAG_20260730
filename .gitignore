@@ -7,21 +7,19 @@ build/
 .venv/
 
 # Output data (generated, not source)
-output/*.csv
-output/*.json
-output/*.xlsx
-
-# Images (generated)
-images/*.jpg
-images/*.png
-images/*.gif
-images/*.webp
+output/
 
 # Checkpoint (runtime state)
 checkpoint/
 
+# Speed mode cache
+speed_mode/
+
+# Auto-discover cache
+config/categories_auto.json
+
 # Logs
-logs/*.log
+logs/
 
 # IDE
 .vscode/

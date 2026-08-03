@@ -1,4 +1,6 @@
 # eMAG 类目配置 - 每行一个 URL，支持注释
 # 增加新类目只需添加一行，无需修改代码
 
-https://www.emag.ro/mouse/c?ref=hp_menu_quick-nav_23_22&type=category
+https://www.emag.ro/laptop-tablete-telefoane/d?ref=hdr_menu_department_1
+https://www.emag.ro/desktop-pc/c?tree_ref=1056&ref=cat_tree_50
+https://www.emag.ro/monitoare-lcd-led/c?ref=search_menu_category

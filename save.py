@@ -117,17 +117,46 @@ def save_excel(products: list[dict], filepath: str = None) -> str:
     ws = wb.active
     ws.title = "Products"
 
+    # ---- 识别数值和布尔字段名 ----
+    numeric_fields = {
+        "PRP原价", "前端价格", "前端折扣", "评论分数", "评价数量",
+        "星级值", "image_count",
+        "prp_price_ron", "sale_price_ron", "discount_pct",
+        "avg_rating", "review_count", "star_pct", "ld_price",
+        "ld_rating_value", "ld_review_count", "ld_best_rating",
+        "ld_worst_rating", "faq_count", "ld_reviews_count_from_jsonld",
+    }
+    bool_fields = {
+        "is_promo", "is_in_stock", "is_genius", "is_top_favorite",
+        "is_super_pret", "_has_family",
+    }
+
     # 标题行
     for col_idx, field in enumerate(fields, 1):
-        ws.cell(row=1, column=col_idx, value=field)
+        cell = ws.cell(row=1, column=col_idx, value=field)
+        cell.font = cell.font.copy(bold=True)
 
-    # 数据行
+    # 数据行（保留原始类型）
     for row_idx, p in enumerate(products, 2):
         for col_idx, field in enumerate(fields, 1):
-            ws.cell(row=row_idx, column=col_idx, value=_normalize_value(p.get(field)))
+            val = p.get(field)
+            if val is None:
+                ws.cell(row=row_idx, column=col_idx, value="")
+            elif field in numeric_fields and isinstance(val, (int, float)):
+                ws.cell(row=row_idx, column=col_idx, value=val)
+            elif field in bool_fields:
+                ws.cell(row=row_idx, column=col_idx, value=bool(val))
+            elif isinstance(val, bool):
+                ws.cell(row=row_idx, column=col_idx, value=val)
+            elif isinstance(val, (int, float)):
+                ws.cell(row=row_idx, column=col_idx, value=val)
+            else:
+                ws.cell(row=row_idx, column=col_idx,
+                        value=str(val).replace("\n", " ").replace("\r", " "))
 
-    # 冻结首行
+    # 冻结首行 + 筛选
     ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
 
     wb.save(filepath)
     logger.info(f"Excel 已保存: {filepath} ({len(products)} 行)")
