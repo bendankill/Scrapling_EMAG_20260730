@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v1.0.4 (2026-08-03)
+
+### Fixed
+
+- **价格解析**: 正确支持罗马尼亚千位分隔符（`1.234,56`→1234.56）和美式格式（`1,234.56`→1234.56）
+- **断点续爬**: 仅 `--reset` 时清除断点，正常运行保留断点支持中断后继续
+- **export-only**: 自动发现并合并所有 `list_pages_*.json`，跨类目PNK去重
+- **页数参数**: `--category-pages` 优先级高于 `--pages`；用户指定页数不受网站错误总页数影响
+- **list-only**: 默认不下载图片，不访问详情页；新增 `--download-list-images` 显式启用
+- **导出顺序**: 图片下载 → 生成 image_path/image_count → 再导出 CSV/Excel/JSON
+- **Excel类型**: 价格/评分/数量保留数字类型，布尔值保留布尔类型，首行筛选
+- **UA轮换**: `get_random_ua()` 生成的UA真正传入请求头
+- **HTTP处理**: 非200非重试状态码返回None，不传给解析器
+- **规格详情**: 仅包含真实规格字段，排除ID/价格/货币/库存等非规格字段
+- **JSON-LD**: 兼容额外属性、空格、单引号、@graph 结构
+- **.gitignore**: 正确忽略 `output/`、`checkpoint/` 等嵌套目录
+
+### Added
+
+- 自动化测试 (tests/): 价格解析、字段映射、JSON-LD、断点、页数限制、Excel类型、导出顺序
+- CI pipeline (.github/workflows/ci.yml): Python 3.11/3.12, pytest + compileall
+- `requirements-dev.txt`
+
+### Changed
+
+- 文档更新至 v1.0.4，命令示例与实际行为一致
+
+---
+
 ## v1.0.3 (2026-07-31)
 
 ### Added
