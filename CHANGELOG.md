@@ -7,17 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+### Fixed (Round 3)
+
+- **图片下载崩溃**: _find_local_images 从嵌套函数恢复为模块级函数
+- **域名安全**: _is_valid_emag_url 严格验证，拒绝伪造域名和 /d 页
+- **类目连续编号**: _build_category_infos 使用 len(result)+1
+- **去重无hash**: _dedup_key 无稳定标识返回None直接保留
+- **export-only共用去重**: do_export_only 调用 dedup_products
+- **部分失败统计**: categories_partial + failed_pages + 退出码(0/1/2/3)
+- **README完整重写**: 全部参数、退出码、安全规则、验收命令
+
 ### Fixed (Round 2)
 
-- **auto-discover**: 转换 str→CategoryInfo，新增 --refresh-categories
-- **跨类目去重**: 恢复正常抓取流程中PNK去重 + dedup_skipped统计
-- **分类验证**: /d部门页拒绝，必须 /c 商品列表页
-- **页统计**: crawl_list_pages所有返回路径包含pages_crawled
-- **HTTP区分**: http_ok标志严格区分失败(failed_pages)与正常空页
-- **图片验证**: JPEG/PNG/GIF/WebP签名检查，拒绝HTML/Captcha
-- **Retry headers**: 不pop调用者字典，每次重试复制headers
-- **规格字段**: 保留spec_*原始罗马尼亚语字段，规格详情无重复
-- **负数退出码**: sys.exit()返回非零
+- auto-discover str→CategoryInfo, --refresh-categories, 跨类目去重
+- /d部门页拒绝, pages_crawled统计, HTTP失败vs空页区分
+- JPEG/PNG/GIF/WebP签名验证, retry headers, spec_*保留
 
 ---
 
