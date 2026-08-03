@@ -29,18 +29,51 @@ def _is_detail_valid(detail: dict, resp=None) -> bool:
     """验证详情解析结果是否包含有效产品数据"""
     if not detail or not isinstance(detail, dict):
         return False
-    # 检查响应是否可能是反爬页面
     if resp and hasattr(resp, 'html_content'):
         html = resp.html_content
         if len(html) < 5000 or 'captcha' in html.lower():
             return False
-    # 必须有产品名称或品牌或规格等实质内容
     has_content = (
         detail.get("ld_name") or detail.get("brand")
         or detail.get("manufacturer") or detail.get("description")
         or detail.get("ld_sku")
     )
     return bool(has_content)
+
+
+def _detail_identity(p: dict) -> str:
+    """为详情去重和断点生成稳定标识: PNK > 规范化URL"""
+    pnk = p.get("pnk", "").strip()
+    if pnk:
+        return pnk
+    url = p.get("url", "").strip()
+    if url:
+        return _normalize_detail_url(url)
+    return ""
+
+
+def _normalize_detail_url(url: str) -> str:
+    """规范化详情URL用于稳定标识"""
+    import re as _re
+    from urllib.parse import urlparse, urlunparse
+    try:
+        p = urlparse(url)
+        path = _re.sub(r"/+$", "", p.path)
+        normalized = urlunparse((
+            p.scheme.lower(), p.hostname.lower() if p.hostname else "",
+            path, "", "", ""
+        ))
+        return normalized
+    except Exception:
+        return url
+
+
+def _checkpoint_detail_is_valid(pnk_or_key: str, detail_data_map: dict) -> bool:
+    """验证断点中的详情数据是否真实有效"""
+    data = detail_data_map.get(pnk_or_key)
+    if not data or not isinstance(data, dict):
+        return False
+    return _is_detail_valid(data)
 
 
 # ============================================================
@@ -342,55 +375,105 @@ def crawl_detail_pages(
     if not products:
         return products, empty_stats
 
-    # 检查断点
+    # ---- 构建每个商品的稳定标识 ----
+    product_ids = []  # [(product, identity, has_pnk, has_url)]
+    for p in products:
+        ident = _detail_identity(p)
+        has_pnk = bool(p.get("pnk", "").strip())
+        has_url = bool(p.get("url", "").strip())
+        product_ids.append((p, ident, has_pnk, has_url))
+
+    # ---- 加载断点 ----
     checkpoint = load_checkpoint(config.CHECKPOINT_DETAIL_PAGES)
-    completed_pnks = set(checkpoint.get("completed_pnks", []) if checkpoint else [])
+    completed_keys = set(checkpoint.get("completed_pnks", []) if checkpoint else [])
     detail_data_map = checkpoint.get("detail_data", {}) if checkpoint else {}
 
-    # 先合并已有详情数据，并统计从断点恢复的商品数
-    this_run_pnks = {p.get("pnk", "") for p in products if p.get("pnk")}
+    # ---- 验证断点 + 恢复有效数据 ----
     restored_from_checkpoint = 0
-    for p in products:
-        pnk = p.get("pnk", "")
-        if pnk in detail_data_map and pnk in this_run_pnks:
-            p.update(detail_data_map[pnk])
-            restored_from_checkpoint += 1
+    stale_keys = set()  # 标识在完成列表但数据无效
 
-    # 过滤需要抓取详情的（且 PNK 在本次商品集合中）
-    to_fetch = [p for p in products if p.get("pnk") and p.get("pnk") not in completed_pnks]
+    for p, ident, has_pnk, has_url in product_ids:
+        if not ident:
+            continue  # 无标识 → 不能从断点恢复
+        if ident not in completed_keys:
+            continue  # 不在完成列表
+        if not _checkpoint_detail_is_valid(ident, detail_data_map):
+            stale_keys.add(ident)
+            continue
+        # 恢复有效详情数据
+        p.update(detail_data_map[ident])
+        restored_from_checkpoint += 1
 
-    if not to_fetch:
-        logger.info("所有详情页已完成")
+    # 清除无效断点标识
+    for k in stale_keys:
+        completed_keys.discard(k)
+        detail_data_map.pop(k, None)
+    if stale_keys:
+        logger.info(f"清除 {len(stale_keys)} 个无效断点标识，将重新抓取")
+
+    # ---- 构建抓取列表（含无PNK但有URL的商品） ----
+    to_fetch = []
+    for p, ident, has_pnk, has_url in product_ids:
+        if ident and ident in completed_keys:
+            continue  # 已在有效断点中
+        if has_url:
+            to_fetch.append((p, ident))
+        # 无URL → 不能抓取，留在统计中计为失败
+
+    total_fetch = len(to_fetch)
+    total_must_fetch = sum(1 for _, ident, _, has_url in product_ids
+                           if ident not in completed_keys and has_url)
+    total_no_url = sum(1 for _, ident, _, has_url in product_ids
+                       if ident not in completed_keys and not has_url)
+
+    if total_fetch == 0 and total_no_url == 0:
+        logger.info("所有详情页已完成（含有效断点恢复）")
         return products, {
-            "total_products": len(products), "to_fetch": 0,
-            "from_checkpoint": restored_from_checkpoint,
+            "total_products": len(products),
+            "to_fetch": 0, "from_checkpoint": restored_from_checkpoint,
             "success": restored_from_checkpoint, "failed": 0,
             "complete": True,
         }
 
-    total = len(to_fetch)
-    logger.info(f"开始爬取 {total} 个商品详情页（并发 {config.CONCURRENT_DETAIL}）...")
+    logger.info(
+        f"详情页: {len(products)} 商品, 断点恢复 {restored_from_checkpoint}, "
+        f"需抓取 {total_fetch}, 无URL跳过 {total_no_url}"
+    )
+
+    if total_fetch == 0:
+        # 没有可抓取的（全部无URL或无标识）→ 全部计失败
+        skip_fail = len(products) - restored_from_checkpoint
+        return products, {
+            "total_products": len(products),
+            "to_fetch": 0, "from_checkpoint": restored_from_checkpoint,
+            "success": restored_from_checkpoint,
+            "failed": skip_fail,
+            "complete": False,
+        }
 
     lock = threading.Lock()
     done_count = 0
     success_count = 0
     fail_count = 0
+    # 使用 ident 作为断点键（由 _detail_identity 生成）
+    completed_in_run = set()
 
-    def fetch_one_detail(product: dict) -> dict:
+    def fetch_one_detail(product: dict, ident: str) -> dict:
         nonlocal done_count, success_count, fail_count
 
         url = product.get("url", "")
-        pnk = product.get("pnk", "")
+        label = ident or url[:60]
 
         if not url:
             with lock:
                 done_count += 1
                 fail_count += 1
+            logger.warning(f"详情页无URL [{label}]")
             return product
 
         random_sleep(
             config.MIN_DETAIL_DELAY, config.MAX_DETAIL_DELAY,
-            reason=f"详情页 {pnk}"
+            reason=f"详情页 {label}"
         )
 
         resp = fetch_with_retry(url)
@@ -398,89 +481,88 @@ def crawl_detail_pages(
             with lock:
                 done_count += 1
                 fail_count += 1
-            logger.warning(f"详情页失败 [{pnk}]: 无响应")
+            logger.warning(f"详情页失败 [{label}]: 无响应")
             return product
 
         try:
             detail = parse_detail_page(resp, url)
 
-            # 验证详情有效性：非空 + 有实质性产品数据
             if not _is_detail_valid(detail, resp):
                 with lock:
                     done_count += 1
                     fail_count += 1
-                logger.warning(f"详情无效 [{pnk}]: 空HTML/反爬/无产品数据")
+                logger.warning(f"详情无效 [{label}]: 空HTML/反爬/无产品数据")
                 return product
 
             product.update(detail)
 
             with lock:
-                completed_pnks.add(pnk)
-                detail_data_map[pnk] = detail
+                completed_keys.add(ident)
+                detail_data_map[ident] = detail
+                completed_in_run.add(ident)
                 done_count += 1
                 success_count += 1
 
                 if done_count % config.CHECKPOINT_INTERVAL == 0:
                     save_checkpoint(config.CHECKPOINT_DETAIL_PAGES, {
-                        "completed_pnks": list(completed_pnks),
+                        "completed_pnks": list(completed_keys),
                         "detail_data": detail_data_map,
                     })
                     logger.info(
-                        f"详情页进度: {done_count}/{total} "
+                        f"详情页进度: {done_count}/{total_fetch} "
                         f"({success_count} 成功, {fail_count} 失败)"
                     )
 
                 if progress_callback:
-                    progress_callback(done_count, total)
+                    progress_callback(done_count, total_fetch)
 
         except Exception as e:
             with lock:
                 done_count += 1
                 fail_count += 1
-            logger.error(f"详情页解析异常 [{pnk}]: {e}")
+            logger.error(f"详情页解析异常 [{label}]: {e}")
 
         return product
 
-    # 使用线程池并发爬取详情
+    # 使用线程池并发爬取
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=config.CONCURRENT_DETAIL
     ) as executor:
         futures = {
-            executor.submit(fetch_one_detail, p): p
-            for p in to_fetch
+            executor.submit(fetch_one_detail, p, ident): (p, ident)
+            for p, ident in to_fetch
         }
         for future in concurrent.futures.as_completed(futures):
             updated = future.result()
             # 在原列表中更新
-            pnk = updated.get("pnk", "")
-            for i, p in enumerate(products):
-                if p.get("pnk") == pnk:
+            for i, (p, ident, _, _) in enumerate(product_ids):
+                if p is updated:
                     products[i] = updated
                     break
 
     # 最终保存
     save_checkpoint(config.CHECKPOINT_DETAIL_PAGES, {
-        "completed_pnks": list(completed_pnks),
+        "completed_pnks": list(completed_keys),
         "detail_data": detail_data_map,
     })
 
-    # 统计：与本次商品PNK集合取交集
-    this_run_completed = completed_pnks & this_run_pnks
-    this_run_success = len(this_run_completed)
-    this_run_failed = len(this_run_pnks) - this_run_success
+    # ---- 统计：基于 product_ids 计算 ----
+    total = len(products)
+    succeeded = restored_from_checkpoint + success_count
+    failed = total - succeeded
 
     detail_stats = {
-        "total_products": len(products),
-        "to_fetch": len(to_fetch),
+        "total_products": total,
+        "to_fetch": total_fetch,
         "from_checkpoint": restored_from_checkpoint,
-        "success": this_run_success,
-        "failed": max(0, this_run_failed),
-        "complete": this_run_failed == 0 and len(products) > 0,
+        "success": succeeded,
+        "failed": max(0, failed),
+        "complete": failed == 0 and total > 0,
     }
 
     logger.info(
-        f"详情页爬取完成: {this_run_success} 成功, "
-        f"{this_run_failed} 失败, 断点恢复 {restored_from_checkpoint}"
+        f"详情页完成: {succeeded} 成功, {failed} 失败, "
+        f"断点恢复 {restored_from_checkpoint}"
     )
 
     return products, detail_stats
